@@ -22,3 +22,16 @@ jobs:
         run: make test
       - name: Render the example
         run: make example
+
+  # Windows is where encoding defaults (cp1252), CreateProcess search order,
+  # and console isatty semantics all differ; the suite pins fixes for each.
+  # Runs the suite directly because make is not guaranteed on the runner.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run tests
+        run: python -m unittest discover -s tests -v

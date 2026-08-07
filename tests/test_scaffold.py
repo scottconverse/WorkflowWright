@@ -58,7 +58,7 @@ class ScaffoldCase(unittest.TestCase):
         proc = scaffold(write_spec(self.dir, spec), pkg)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         for node_id, body in (steps or {}).items():
-            (pkg / "steps" / f"{node_id}.sh").write_text(body)
+            (pkg / "steps" / f"{node_id}.sh").write_text(body, encoding="utf-8")
         return pkg
 
 
@@ -81,7 +81,7 @@ class TestGeneration(ScaffoldCase):
     def test_generated_module_imports(self):
         """Regression: json.dumps emits true/false/null, which are valid Python *names*.
         py_compile therefore passes and the module explodes at import instead."""
-        pkg = self.build(EXAMPLE_SPEC and json.loads(Path(EXAMPLE_SPEC).read_text()))
+        pkg = self.build(EXAMPLE_SPEC and json.loads(Path(EXAMPLE_SPEC).read_text(encoding="utf-8")))
         proc = subprocess.run(
             [sys.executable, "-c",
              f"import sys; sys.path.insert(0, {str(pkg)!r}); import workflow; "
@@ -91,27 +91,41 @@ class TestGeneration(ScaffoldCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("7 ['build']", proc.stdout)
 
+    def test_generated_files_are_utf8(self):
+        """Regression: an unqualified write_text() emits the platform codepage, which
+        on Windows is cp1252. The em dashes in the generated docstrings then make
+        workflow.py unreadable as Python source, since PEP 263 assumes UTF-8."""
+        pkg = self.build(valid_spec())
+        raw = (pkg / "workflow.py").read_bytes()
+        self.assertTrue(
+            any(b > 0x7F for b in raw),
+            "workflow.py has no non-ASCII bytes left to pin the encoding against",
+        )
+        raw.decode("utf-8")
+        for name in ("runner.py", "README.md", "prompts/make.md", "steps/check.sh"):
+            (pkg / name).read_bytes().decode("utf-8")
+
     def test_regeneration_preserves_hand_written_work(self):
         spec = valid_spec()
         pkg = self.build(spec)
-        (pkg / "prompts" / "make.md").write_text("MY PROMPT")
-        (pkg / "steps" / "check.sh").write_text("MY STEP")
+        (pkg / "prompts" / "make.md").write_text("MY PROMPT", encoding="utf-8")
+        (pkg / "steps" / "check.sh").write_text("MY STEP", encoding="utf-8")
         proc = scaffold(write_spec(self.dir, spec), pkg)
         self.assertIn("kept", proc.stdout)
-        self.assertEqual((pkg / "prompts" / "make.md").read_text(), "MY PROMPT")
-        self.assertEqual((pkg / "steps" / "check.sh").read_text(), "MY STEP")
+        self.assertEqual((pkg / "prompts" / "make.md").read_text(encoding="utf-8"), "MY PROMPT")
+        self.assertEqual((pkg / "steps" / "check.sh").read_text(encoding="utf-8"), "MY STEP")
 
     def test_force_overwrites(self):
         spec = valid_spec()
         pkg = self.build(spec)
-        (pkg / "prompts" / "make.md").write_text("MY PROMPT")
+        (pkg / "prompts" / "make.md").write_text("MY PROMPT", encoding="utf-8")
         scaffold(write_spec(self.dir, spec), pkg, "--force")
-        self.assertNotEqual((pkg / "prompts" / "make.md").read_text(), "MY PROMPT")
+        self.assertNotEqual((pkg / "prompts" / "make.md").read_text(encoding="utf-8"), "MY PROMPT")
 
     def test_steps_start_as_honest_failures(self):
         """A stub that exits 0 would let an empty workflow report success."""
         pkg = self.build(valid_spec())
-        self.assertIn("exit 1", (pkg / "steps" / "check.sh").read_text())
+        self.assertIn("exit 1", (pkg / "steps" / "check.sh").read_text(encoding="utf-8"))
 
 
 class TestRetryAccounting(ScaffoldCase):
@@ -130,7 +144,7 @@ class TestRetryAccounting(ScaffoldCase):
         code, out = run_workflow(pkg, self.dir / "run", workdir=pkg)
         self.assertEqual(code, 0, out)
         self.assertEqual(out.count("work [code]"), 3, out)
-        self.assertIn("shipped", (self.dir / "run" / "ship.out").read_text())
+        self.assertIn("shipped", (self.dir / "run" / "ship.out").read_text(encoding="utf-8"))
 
     def test_checker_failing_repeatedly_does_not_consume_its_own_retries(self):
         pkg = self.build(loop_spec(), steps={
@@ -160,7 +174,7 @@ class TestRetryAccounting(ScaffoldCase):
         })
         run_workflow(pkg, self.dir / "run", workdir=pkg)
         self.assertIn("REJECTED: specific reason",
-                      (self.dir / "run" / "report.txt").read_text())
+                      (self.dir / "run" / "report.txt").read_text(encoding="utf-8"))
 
 
 class TestAgentInvocation(ScaffoldCase):
@@ -190,11 +204,11 @@ class TestAgentInvocation(ScaffoldCase):
             "judge": judge_body, "ship": "echo shipped\n"})
         run_dir = self.dir / "run"
         run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "brief.md").write_text("Build a widget.")
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
         stub = make_stub_claude(self.dir / "stub")
-        code, out = run_workflow(pkg, run_dir, workdir=pkg, extra_path=stub)
-        calls = (self.dir / "stub" / "calls.log").read_text().splitlines()
-        prompts = (self.dir / "stub" / "prompts.log").read_text().split("---CALL---")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, agent_cli=stub)
+        calls = (self.dir / "stub" / "calls.log").read_text(encoding="utf-8").splitlines()
+        prompts = (self.dir / "stub" / "prompts.log").read_text(encoding="utf-8").split("---CALL---")
         return code, out, calls, prompts
 
     def test_model_and_tools_are_passed(self):
@@ -251,7 +265,7 @@ class TestOperatorAffordances(ScaffoldCase):
         node existed to provide. 75 is EX_TEMPFAIL: waiting on a person, not broken."""
         pkg = self.build(valid_spec(), steps={"check": "exit 0\n"})
         stub = make_stub_claude(self.dir / "stub")
-        code, out = run_workflow(pkg, self.dir / "run", workdir=pkg, extra_path=stub)
+        code, out = run_workflow(pkg, self.dir / "run", workdir=pkg, agent_cli=stub)
         self.assertEqual(code, 75, out)
         self.assertIn("stops here rather than deciding for you", out)
 

@@ -34,6 +34,8 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -50,6 +52,36 @@ AGENT_TIMEOUT = int(os.environ.get("WORKFLOW_AGENT_TIMEOUT", "1800"))
 STEP_TIMEOUT = int(os.environ.get("WORKFLOW_STEP_TIMEOUT", "3600"))
 PERMISSION_MODE = os.environ.get("WORKFLOW_PERMISSION_MODE", "acceptEdits")
 
+# The agent CLI, overridable so tests can substitute a stub and so a different
+# CLI can be swapped in without editing this file. Split with shlex so the
+# override may carry its own arguments, e.g. "python /path/to/stub.py".
+AGENT_CLI = shlex.split(os.environ.get("WORKFLOW_AGENT_CLI", "claude")) or ["claude"]
+
+
+def _bash():
+    """Locate a bash that can run step scripts.
+
+    On Windows an unqualified "bash" goes through CreateProcess's search order,
+    which checks System32 before PATH — and System32's bash.exe is the WSL
+    launcher, which re-tokenizes the command line POSIX-style and cannot see
+    Windows drive paths anyway. Prefer Git's bash, which handles them natively.
+    """
+    if os.name != "nt":
+        return "bash"
+    override = os.environ.get("WORKFLOW_BASH")
+    if override:
+        return override
+    for base in filter(None, (os.environ.get("ProgramFiles"),
+                              os.environ.get("ProgramFiles(x86)"))):
+        for sub in ("Git/usr/bin/bash.exe", "Git/bin/bash.exe"):
+            cand = os.path.join(base, sub)
+            if os.path.exists(cand):
+                return cand
+    return shutil.which("bash") or "bash"
+
+
+BASH = _bash()
+
 
 def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None):
     """Invoke an agent as a subprocess and return its result plus session id.
@@ -59,7 +91,7 @@ def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None):
     Starting a fresh session throws away the former to deliver the latter, and usually
     produces a different first mistake rather than a fix.
     """
-    cmd = ["claude", "-p", "--output-format", "json", "--permission-mode", PERMISSION_MODE]
+    cmd = [*AGENT_CLI, "-p", "--output-format", "json", "--permission-mode", PERMISSION_MODE]
     if session_id:
         cmd += ["--resume", session_id]
     if model:
@@ -75,7 +107,7 @@ def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None):
     except subprocess.TimeoutExpired:
         return Result(False, f"agent exceeded {AGENT_TIMEOUT}s timeout", session_id)
     except FileNotFoundError:
-        return Result(False, "the `claude` CLI is not on PATH", session_id)
+        return Result(False, f"the `{AGENT_CLI[0]}` CLI is not on PATH", session_id)
 
     if not proc.stdout.strip():
         return Result(False, proc.stderr.strip() or "agent produced no output", session_id)
@@ -95,8 +127,10 @@ def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None):
 def run_step(script, *, cwd=None):
     """Run a deterministic step. Exit status is the verdict; output is the payload."""
     try:
+        # Forward slashes: a backslashed path is mangled by msys bash's own
+        # command-line re-parse when launched from a native Windows process.
         proc = subprocess.run(
-            ["bash", str(script)], capture_output=True, text=True,
+            [BASH, str(script).replace(os.sep, "/")], capture_output=True, text=True,
             cwd=cwd, timeout=STEP_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
@@ -114,14 +148,20 @@ def ask_human(label, detail, context_path):
     work removes the only check that node existed to provide.
     """
     print(f"\\n=== {label} ===\\n{detail}\\nContext: {context_path}\\n")
+    unattended = (
+        "No interactive terminal, so this run stops here rather than deciding for "
+        "you. Review the context above and rerun with --from to continue."
+    )
     if not sys.stdin.isatty():
-        print(
-            "No interactive terminal, so this run stops here rather than deciding for "
-            f"you. Review the context above and rerun with --from to continue.",
-            file=sys.stderr,
-        )
+        print(unattended, file=sys.stderr)
         raise SystemExit(NEEDS_HUMAN)
-    answer = input("Approve? [y/N] ").strip().lower()
+    try:
+        answer = input("Approve? [y/N] ").strip().lower()
+    except EOFError:
+        # A stdin that claims to be a TTY but delivers EOF has nobody at it.
+        # Windows does this even for NUL, so isatty alone cannot be trusted.
+        print(unattended, file=sys.stderr)
+        raise SystemExit(NEEDS_HUMAN)
     return Result(answer in ("y", "yes"), f"human answered: {answer or 'no'}")
 '''
 
@@ -183,16 +223,16 @@ class Context:
 
     def read(self, name: str) -> str:
         path = self.run_dir / name
-        return path.read_text() if path.exists() else ""
+        return path.read_text(encoding="utf-8") if path.exists() else ""
 
     def write(self, name: str, text: str) -> None:
         path = self.run_dir / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8")
 
     def prompt_for(self, node_id: str) -> str:
         """Fill a prompt template with the payloads this node declares it reads."""
-        template = (HERE / "prompts" / f"{node_id}.md").read_text()
+        template = (HERE / "prompts" / f"{node_id}.md").read_text(encoding="utf-8")
         # Authoring notes are for whoever maintains the prompt, not for the model.
         template = re.sub(r"<!--.*?-->", "", template, flags=re.DOTALL)
         for name in NODES[node_id].get("reads", []):
@@ -428,6 +468,8 @@ Environment variables, all optional:
 - `WORKFLOW_AGENT_TIMEOUT` (default 1800s)
 - `WORKFLOW_STEP_TIMEOUT` (default 3600s)
 - `WORKFLOW_PERMISSION_MODE` (default `acceptEdits`)
+- `WORKFLOW_AGENT_CLI` (default `claude`; may carry arguments, e.g. a stub for tests)
+- `WORKFLOW_BASH` (Windows only: which bash runs the step scripts)
 
 ## A note on the shape
 
@@ -447,7 +489,7 @@ def generate(spec, out: Path, force: bool):
     nodes = {n["id"]: n for n in spec["nodes"]}
 
     # Always regenerated — these are compiled artifacts.
-    (out / "runner.py").write_text(RUNNER)
+    (out / "runner.py").write_text(RUNNER, encoding="utf-8")
     (out / "workflow.py").write_text(
         WORKFLOW_HEADER.format(
             name=spec["name"],
@@ -460,10 +502,11 @@ def generate(spec, out: Path, force: bool):
             nodes=pprint.pformat(nodes, indent=4, sort_dicts=False, width=88),
             edges=pprint.pformat(spec["edges"], indent=4, sort_dicts=False, width=88),
         )
-        + WORKFLOW_BODY
+        + WORKFLOW_BODY,
+        encoding="utf-8",
     )
     (out / "workflow.py").chmod(0o755)
-    (out / "spec.json").write_text(json.dumps(spec, indent=2) + "\n")
+    (out / "spec.json").write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
 
     # Never overwritten — these hold the actual work.
     created, skipped = [], []
@@ -507,7 +550,7 @@ def generate(spec, out: Path, force: bool):
         if path.exists() and not force:
             skipped.append(path)
             continue
-        path.write_text(body)
+        path.write_text(body, encoding="utf-8")
         if kind == "code":
             path.chmod(0o755)
         created.append(path)
@@ -532,7 +575,8 @@ def generate(spec, out: Path, force: bool):
             isolation=spec.get("isolation", "none"),
             todo_list="\n".join(todo),
             sample=sample,
-        )
+        ),
+        encoding="utf-8",
     )
     return created, skipped
 

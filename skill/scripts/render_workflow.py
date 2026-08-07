@@ -31,7 +31,7 @@ MERMAID_URL = (
 
 def load_spec(path):
     try:
-        spec = json.loads(Path(path).read_text())
+        spec = json.loads(Path(path).read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         sys.exit(f"spec is not valid JSON: {exc}")
     for field in ("name", "goal", "trigger", "entry", "nodes", "edges"):
@@ -323,13 +323,13 @@ def mermaid_source():
     ) / "agent-workflow-architect"
     js = cache / f"mermaid-{MERMAID_VERSION}.min.js"
     if js.exists() and js.stat().st_size > 100_000:
-        return js.read_text()
+        return js.read_text(encoding="utf-8")
     import urllib.request
 
     cache.mkdir(parents=True, exist_ok=True)
     with urllib.request.urlopen(MERMAID_URL, timeout=60) as resp:
         text = resp.read().decode("utf-8")
-    js.write_text(text)
+    js.write_text(text, encoding="utf-8")
     return text
 
 
@@ -341,7 +341,8 @@ def prerender_svg(mermaid_text):
         return None
     try:
         js = mermaid_source()
-    except Exception:
+    except Exception as exc:
+        print(f"note: could not fetch or cache mermaid.min.js: {exc!r}", file=sys.stderr)
         return None
 
     page_html = (
@@ -358,7 +359,7 @@ def prerender_svg(mermaid_text):
     )
 
     tmp = Path(tempfile.mkdtemp()) / "render.html"
-    tmp.write_text(page_html)
+    tmp.write_text(page_html, encoding="utf-8")
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch()
@@ -367,7 +368,8 @@ def prerender_svg(mermaid_text):
             page.wait_for_function("window.__svg !== null", timeout=30_000)
             svg = page.evaluate("window.__svg")
             browser.close()
-    except Exception:
+    except Exception as exc:
+        print(f"note: headless render failed: {exc!r}", file=sys.stderr)
         return None
     finally:
         try:
@@ -632,10 +634,12 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     name = spec["name"]
 
-    (out / f"{name}.mermaid").write_text(mermaid)
-    (out / f"{name}-design.md").write_text(build_markdown(spec, mermaid, problems))
+    (out / f"{name}.mermaid").write_text(mermaid, encoding="utf-8")
+    (out / f"{name}-design.md").write_text(
+        build_markdown(spec, mermaid, problems), encoding="utf-8"
+    )
     (out / f"{name}.html").write_text(
-        build_html(spec, mermaid, problems, args.spec, svg)
+        build_html(spec, mermaid, problems, args.spec, svg), encoding="utf-8"
     )
 
     print(f"wrote {out / (name + '-design.md')}")

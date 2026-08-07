@@ -88,7 +88,7 @@ class TestOutputs(unittest.TestCase):
 
     def test_design_doc_covers_the_decisions(self):
         self.render(EXAMPLE_SPEC, "--no-prerender")
-        doc = (self.out / "ticket-to-pr-design.md").read_text()
+        doc = (self.out / "ticket-to-pr-design.md").read_text(encoding="utf-8")
         for section in ("## Nodes", "## Flow", "## Where people are involved",
                         "## Model and tool allocation", "## Open questions"):
             self.assertIn(section, doc)
@@ -100,19 +100,19 @@ class TestOutputs(unittest.TestCase):
         proc = self.render(write_spec(self.out, spec), "--no-prerender")
         self.assertEqual(proc.returncode, 2)
         self.assertIn("max_attempts", proc.stderr)
-        html = (self.out / "fixture.html").read_text()
+        html = (self.out / "fixture.html").read_text(encoding="utf-8")
         self.assertIn("Structural problems", html)
 
     def test_fallback_uses_cdn(self):
         self.render(EXAMPLE_SPEC, "--no-prerender")
-        html = (self.out / "ticket-to-pr.html").read_text()
+        html = (self.out / "ticket-to-pr.html").read_text(encoding="utf-8")
         self.assertIn("cdnjs.cloudflare.com", html)
 
     def test_html_escapes_injected_content(self):
         spec = valid_spec()
         spec["goal"] = 'Break <script>alert("x")</script> out'
         self.render(write_spec(self.out, spec), "--no-prerender")
-        html = (self.out / "fixture.html").read_text()
+        html = (self.out / "fixture.html").read_text(encoding="utf-8")
         self.assertNotIn("<script>alert", html)
         self.assertIn("&lt;script&gt;", html)
 
@@ -138,7 +138,7 @@ class TestPreRendering(unittest.TestCase):
             capture_output=True, text=True,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        html = (self.out / "ticket-to-pr.html").read_text()
+        html = (self.out / "ticket-to-pr.html").read_text(encoding="utf-8")
         if "could not pre-render" in proc.stderr:
             self.skipTest("no browser or network available for pre-rendering")
         self.assertIn("<svg", html)

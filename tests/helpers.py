@@ -56,7 +56,7 @@ def valid_spec():
 
 def write_spec(directory, spec):
     path = Path(directory) / "spec.json"
-    path.write_text(json.dumps(spec, indent=2))
+    path.write_text(json.dumps(spec, indent=2), encoding="utf-8")
     return path
 
 
@@ -64,37 +64,47 @@ def make_stub_claude(directory, responses=None, fail_until=0):
     """A fake `claude` CLI that records argv and emits the real JSON output shape.
 
     Lets the driver's agent path be exercised without network, cost, or credentials.
-    Every invocation appends its full argv to calls.log and its prompt to prompts.log,
+    Every invocation appends its flags to calls.log and its prompt to prompts.log,
     so tests can assert on flags like --resume and on prompt substitution.
+
+    Written in Python and injected via WORKFLOW_AGENT_CLI rather than a shell
+    script on PATH: Windows cannot execute an extensionless shebang script, and
+    with the stub unlaunchable, PATH resolution would fall through to a real
+    `claude` installation — spending actual tokens from inside the test suite.
+    Returns the WORKFLOW_AGENT_CLI value that routes the driver to the stub.
     """
     directory = Path(directory)
-    bindir = directory / "bin"
-    bindir.mkdir(parents=True, exist_ok=True)
-    script = bindir / "claude"
+    directory.mkdir(parents=True, exist_ok=True)
+    script = directory / "claude_stub.py"
     script.write_text(
-        "#!/usr/bin/env bash\n"
-        f'log="{directory}"\n'
+        "import sys\n"
+        "from pathlib import Path\n"
+        "log = Path(__file__).resolve().parent\n"
+        "flags, prompt = sys.argv[1:-1], sys.argv[-1]\n"
         "# Log flags only, one line per invocation. The prompt is multi-line, so\n"
         "# including it would make line offsets meaningless for callers.\n"
-        'printf "%s\\n" "${*:1:$#-1}" >> "$log/calls.log"\n'
-        'prompt="${@: -1}"\n'
-        'printf "%s\\n---CALL---\\n" "$prompt" >> "$log/prompts.log"\n'
-        'n=$(cat "$log/n" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$log/n"\n'
-        f'if [ "$n" -le {fail_until} ]; then\n'
-        '  printf \'{"session_id":"sess-1","is_error":true,"result":"agent failed"}\'\n'
-        "  exit 0\n"
-        "fi\n"
-        'printf \'{"session_id":"sess-1","is_error":false,"result":"output %s"}\' "$n"\n'
+        'with (log / "calls.log").open("a", encoding="utf-8") as f:\n'
+        '    f.write(" ".join(flags) + "\\n")\n'
+        'with (log / "prompts.log").open("a", encoding="utf-8") as f:\n'
+        '    f.write(prompt + "\\n---CALL---\\n")\n'
+        'n_path = log / "n"\n'
+        'n = int(n_path.read_text(encoding="utf-8")) + 1 if n_path.exists() else 1\n'
+        'n_path.write_text(str(n), encoding="utf-8")\n'
+        f"if n <= {fail_until}:\n"
+        '    print(\'{"session_id":"sess-1","is_error":true,"result":"agent failed"}\', end="")\n'
+        "else:\n"
+        '    print(\'{"session_id":"sess-1","is_error":false,"result":"output %d"}\' % n, end="")\n',
+        encoding="utf-8",
     )
-    script.chmod(0o755)
-    return bindir
+    # Forward slashes keep the value safe through shlex.split on every platform.
+    return f'"{sys.executable}" "{script}"'.replace(os.sep, "/")
 
 
-def run_workflow(pkg, run_dir, workdir=None, extra_path=None, args=()):
+def run_workflow(pkg, run_dir, workdir=None, agent_cli=None, args=()):
     """Execute a generated workflow package and return (returncode, combined output)."""
     env = dict(os.environ)
-    if extra_path:
-        env["PATH"] = f"{extra_path}:{env['PATH']}"
+    if agent_cli:
+        env["WORKFLOW_AGENT_CLI"] = agent_cli
     cmd = [
         sys.executable,
         str(Path(pkg) / "workflow.py"),
@@ -104,7 +114,10 @@ def run_workflow(pkg, run_dir, workdir=None, extra_path=None, args=()):
         str(workdir or pkg),
         *args,
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=pkg, env=env)
+    # stdin detached: "unattended" must mean no stdin, and on Windows the
+    # inherited console handle passes isatty() even with nobody at it.
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=pkg, env=env,
+                          stdin=subprocess.DEVNULL)
     return proc.returncode, proc.stdout + proc.stderr
 
 

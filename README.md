@@ -90,7 +90,7 @@ skill/           the skill itself — this is what gets installed
   references/    design method, critique rubric, patterns, spec schema
   scripts/       render_workflow.py, scaffold_workflow.py
   assets/        a complete worked example spec
-tests/           48 tests, stdlib unittest, no dependencies
+tests/           49 tests, stdlib unittest, no dependencies
 examples/        rendered output of the bundled example spec
 ```
 
@@ -98,6 +98,11 @@ examples/        rendered output of the bundled example spec
 
 `make test` runs everything with no network access, no API credentials, and no token
 spend — agent invocation is exercised against a stub CLI that records its argv.
+Without make (Windows, most commonly), the equivalent is:
+
+```bash
+python -m unittest discover -s tests
+```
 
 Several tests lock in regressions found while building rather than hypothetical failures,
 and are commented as such. The three worth knowing about:
