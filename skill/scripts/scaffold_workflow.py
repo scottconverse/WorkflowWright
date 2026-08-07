@@ -77,10 +77,15 @@ def _bash():
             cand = os.path.join(base, sub)
             if os.path.exists(cand):
                 return cand
-    return shutil.which("bash") or "bash"
-
-
-BASH = _bash()
+    found = shutil.which("bash")
+    if found and "system32" not in found.lower():
+        return found
+    # No unqualified-"bash" fallback: that silently lands on the WSL launcher
+    # again, the same invisible-failure class as a swallowed exception.
+    raise SystemExit(
+        "no usable bash found for step scripts. Install Git for Windows, or set "
+        "WORKFLOW_BASH to a bash that understands Windows paths."
+    )
 
 
 def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None):
@@ -130,8 +135,8 @@ def run_step(script, *, cwd=None):
         # Forward slashes: a backslashed path is mangled by msys bash's own
         # command-line re-parse when launched from a native Windows process.
         proc = subprocess.run(
-            [BASH, str(script).replace(os.sep, "/")], capture_output=True, text=True,
-            cwd=cwd, timeout=STEP_TIMEOUT,
+            [_bash(), str(script).replace(os.sep, "/")], capture_output=True,
+            text=True, cwd=cwd, timeout=STEP_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         return Result(False, f"step exceeded {STEP_TIMEOUT}s timeout")
