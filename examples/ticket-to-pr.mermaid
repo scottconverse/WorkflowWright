@@ -1,0 +1,23 @@
+flowchart TD
+    intake["Fetch ticket, create worktree"]
+    scout("Locate relevant code and prior art<br/>opus")
+    plan("Write an implementation plan<br/>opus")
+    build("Implement the plan<br/>sonnet<br/>max 3 attempts")
+    verify["Tests, lint, typecheck"]
+    open_pr["Push branch and open pull request"]
+    accept{{"Review and merge"}}
+
+    intake -- "ticket.json" --> scout
+    scout -- "scout-report.md" --> plan
+    plan -- "plan.md" --> build
+    build -- "worktree" --> verify
+    verify -- "pass: worktree" --> open_pr
+    verify -. "fail: verify-report.txt" .-> build
+    open_pr -- "pr_url" --> accept
+
+    classDef code fill:#dbeafe,stroke:#1d4ed8,stroke-width:1px,color:#0b2a6b;
+    classDef agent fill:#ede9fe,stroke:#6d28d9,stroke-width:1px,color:#3b0764;
+    classDef human fill:#fef3c7,stroke:#b45309,stroke-width:1px,color:#4a2606;
+    class intake,verify,open_pr code;
+    class scout,plan,build agent;
+    class accept human;
