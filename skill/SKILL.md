@@ -1,5 +1,5 @@
 ---
-name: agent-workflow-architect
+name: workflowwright
 description: >-
   Design, critique, and scaffold workflows where deterministic code, AI agents, and human
   judgment each handle the part they do best. Compiles one spec into a design doc, a Mermaid
@@ -15,7 +15,7 @@ description: >-
   paths that make a workflow safe to run unattended.
 ---
 
-# Agent Workflow Architect
+# WorkflowWright
 
 Most agent automation fails for structural reasons rather than prompting reasons. The
 model call that should have been a function. The retry loop with no ceiling. The check

@@ -1,4 +1,4 @@
-SKILL_DIR ?= $(HOME)/.claude/skills/agent-workflow-architect
+SKILL_DIR ?= $(HOME)/.claude/skills/workflowwright
 PY        ?= python3
 SPEC      ?= skill/assets/example-spec.json
 
@@ -21,11 +21,11 @@ install: ## Copy the skill into ~/.claude/skills/
 	@echo "installed -> $(SKILL_DIR)"
 
 package: ## Build a distributable .skill archive
-	@rm -rf build/pkg && mkdir -p build/pkg/agent-workflow-architect
-	@cp -r skill/. build/pkg/agent-workflow-architect/
-	@cd build/pkg && zip -qr ../agent-workflow-architect.skill agent-workflow-architect \
+	@rm -rf build/pkg && mkdir -p build/pkg/workflowwright
+	@cp -r skill/. build/pkg/workflowwright/
+	@cd build/pkg && zip -qr ../workflowwright.skill workflowwright \
 		-x '*__pycache__*' '*.pyc'
-	@echo "built -> build/agent-workflow-architect.skill"
+	@echo "built -> build/workflowwright.skill"
 
 clean:
 	@rm -rf build examples/*.html examples/*.mermaid examples/*-design.md

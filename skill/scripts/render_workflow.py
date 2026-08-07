@@ -320,7 +320,7 @@ def mermaid_source():
     """Return mermaid.min.js from a local cache, downloading once if needed."""
     cache = Path(
         os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")
-    ) / "agent-workflow-architect"
+    ) / "workflowwright"
     js = cache / f"mermaid-{MERMAID_VERSION}.min.js"
     if js.exists() and js.stat().st_size > 100_000:
         return js.read_text(encoding="utf-8")
