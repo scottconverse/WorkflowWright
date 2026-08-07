@@ -7,6 +7,7 @@ or token spend is involved.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -104,6 +105,28 @@ class TestGeneration(ScaffoldCase):
         raw.decode("utf-8")
         for name in ("runner.py", "README.md", "prompts/make.md", "steps/check.sh"):
             (pkg / name).read_bytes().decode("utf-8")
+
+    @unittest.skipUnless(os.name == "nt", "exercises Windows bash resolution")
+    def test_missing_bash_fails_loudly_naming_workflow_bash(self):
+        """With no usable bash, the runner must stop and name WORKFLOW_BASH.
+        An unqualified "bash" fallback would hand step scripts to System32's
+        WSL launcher — which mangles Windows paths — silently."""
+        import importlib.util
+
+        pkg = self.build(valid_spec())
+        loader_spec = importlib.util.spec_from_file_location(
+            "runner_probe", pkg / "runner.py"
+        )
+        mod = importlib.util.module_from_spec(loader_spec)
+        sys.modules["runner_probe"] = mod
+        self.addCleanup(sys.modules.pop, "runner_probe", None)
+        loader_spec.loader.exec_module(mod)
+        # An empty environ: no override, no Git detection, no PATH. Passed
+        # explicitly because stripping a real child's environment is unreliable
+        # (case-insensitive keys, and sandboxes that re-inject variables).
+        with self.assertRaises(SystemExit) as ctx:
+            mod._bash({})
+        self.assertIn("WORKFLOW_BASH", str(ctx.exception))
 
     def test_regeneration_preserves_hand_written_work(self):
         spec = valid_spec()

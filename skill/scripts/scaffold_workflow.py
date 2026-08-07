@@ -58,7 +58,7 @@ PERMISSION_MODE = os.environ.get("WORKFLOW_PERMISSION_MODE", "acceptEdits")
 AGENT_CLI = shlex.split(os.environ.get("WORKFLOW_AGENT_CLI", "claude")) or ["claude"]
 
 
-def _bash():
+def _bash(environ=None):
     """Locate a bash that can run step scripts.
 
     On Windows an unqualified "bash" goes through CreateProcess's search order,
@@ -66,18 +66,20 @@ def _bash():
     launcher, which re-tokenizes the command line POSIX-style and cannot see
     Windows drive paths anyway. Prefer Git's bash, which handles them natively.
     """
+    if environ is None:
+        environ = os.environ
     if os.name != "nt":
         return "bash"
-    override = os.environ.get("WORKFLOW_BASH")
+    override = environ.get("WORKFLOW_BASH")
     if override:
         return override
-    for base in filter(None, (os.environ.get("ProgramFiles"),
-                              os.environ.get("ProgramFiles(x86)"))):
+    for base in filter(None, (environ.get("ProgramFiles"),
+                              environ.get("ProgramFiles(x86)"))):
         for sub in ("Git/usr/bin/bash.exe", "Git/bin/bash.exe"):
             cand = os.path.join(base, sub)
             if os.path.exists(cand):
                 return cand
-    found = shutil.which("bash")
+    found = shutil.which("bash", path=environ.get("PATH", ""))
     if found and "system32" not in found.lower():
         return found
     # No unqualified-"bash" fallback: that silently lands on the WSL launcher
