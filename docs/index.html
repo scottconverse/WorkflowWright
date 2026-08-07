@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WorkflowWright — assign each step to the cheapest resource that can do it</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1f2e; --muted: #5b6272; --line: #e3e6ee;
+    --card: #f6f7fa; --accent: #1d4ed8; --code-bg: #f0f2f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12141c; --fg: #e6e8f0; --muted: #9aa1b5; --line: #2a2e3d;
+      --card: #1a1e2a; --accent: #7ea2f5; --code-bg: #1e2230;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 56px 24px 96px; }
+  h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .tagline { font-size: 1.25rem; color: var(--muted); margin: 0 0 24px; max-width: 46rem; }
+  .cta {
+    display: inline-block; background: var(--accent); color: var(--bg);
+    padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600;
+  }
+  .cta:hover { filter: brightness(1.1); }
+  h2 { font-size: 1.35rem; margin: 56px 0 12px; letter-spacing: -0.01em; }
+  p { max-width: 46rem; }
+  a { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 0.95rem; }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 650; }
+  td:first-child, th:first-child { font-weight: 650; white-space: nowrap; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 22px; margin: 16px 0; overflow-x: auto;
+  }
+  /* The diagram SVG is single-theme; keep it on a light card in both schemes. */
+  .diagram-card { background: #ffffff; border: 1px solid var(--line); border-radius: 12px;
+    padding: 22px; margin: 16px 0; text-align: center; }
+  .diagram-card svg { max-width: 320px; height: auto; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font-size: 0.85rem; line-height: 1.55;
+  }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+  .caption { color: var(--muted); font-size: 0.88rem; margin-top: 6px; }
+  footer { margin-top: 80px; padding-top: 20px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 0.88rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>WorkflowWright</h1>
+  <p class="tagline">Agent workflows fail for structural reasons, not prompting reasons.
+  WorkflowWright assigns each step to the cheapest resource that can actually do it —
+  code, an agent, or a human — and compiles the result into artifacts that cannot drift apart.</p>
+  <p><a class="cta" href="https://github.com/scottconverse/WorkflowWright">Get it on GitHub</a></p>
+
+  <h2>The whole argument, in one table</h2>
+  <table>
+    <thead><tr><th></th><th>Reliability</th><th>Marginal cost</th><th>Best at</th></tr></thead>
+    <tbody>
+      <tr><td>Code</td><td>Deterministic</td><td>~Zero</td><td>Anything whose output is fixed by its input</td></tr>
+      <tr><td>Agents</td><td>Variable</td><td>Tokens</td><td>Ambiguous input, novel output, judgment at scale</td></tr>
+      <tr><td>Humans</td><td>High judgment</td><td>Highest, and scarce</td><td>Taste, accountability, irreversible calls</td></tr>
+    </tbody>
+  </table>
+  <p>Most broken pipelines come from two errors: assigning to agents what a five-line
+  script does deterministically for free, and putting a human approval gate in the
+  middle where it serializes everything at one person's availability. WorkflowWright
+  makes the assignment explicit — then generates the design doc, the diagram, and the
+  orchestrator code from one spec, so they cannot disagree.</p>
+
+  <h2>One spec in, four artifacts out</h2>
+  <div class="cols">
+    <div>
+<pre><code>// spec.json (fragment)
+{
+  "id": "build",
+  "label": "Implement the plan",
+  "kind": "agent",
+  "model": "sonnet",
+  "reads": ["plan.md", "verify-report.txt"],
+  "max_attempts": 3,
+  "on_exhausted": "human"
+}</code></pre>
+<pre><code>$ python3 render_workflow.py spec.json --out out
+wrote out/ticket-to-pr-design.md
+wrote out/ticket-to-pr.mermaid
+wrote out/ticket-to-pr.html</code></pre>
+      <p class="caption">A code node moves the ticket. Agents scout, plan, build. A
+      deterministic verify step routes failures back to the builder — three bounded
+      attempts, then a human. The diagram on the right is the renderer's actual
+      output for this spec, embedded here as the inline SVG it produced.</p>
+    </div>
+    <div class="diagram-card">
+<svg id="g" width="100%" xmlns="http://www.w3.org/2000/svg" style="max-width: 274.734375px;" viewBox="-8 -8 274.734375 672" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#g{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#333;}#g .error-icon{fill:#552222;}#g .error-text{fill:#552222;stroke:#552222;}#g .edge-thickness-normal{stroke-width:2px;}#g .edge-thickness-thick{stroke-width:3.5px;}#g .edge-pattern-solid{stroke-dasharray:0;}#g .edge-pattern-dashed{stroke-dasharray:3;}#g .edge-pattern-dotted{stroke-dasharray:2;}#g .marker{fill:#333333;stroke:#333333;}#g .marker.cross{stroke:#333333;}#g svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#g .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#333;}#g .cluster-label text{fill:#333;}#g .cluster-label span,#g p{color:#333;}#g .label text,#g span,#g p{fill:#333;color:#333;}#g .node rect,#g .node circle,#g .node ellipse,#g .node polygon,#g .node path{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#g .flowchart-label text{text-anchor:middle;}#g .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#g .node .label{text-align:center;}#g .node.clickable{cursor:pointer;}#g .arrowheadPath{fill:#333333;}#g .edgePath .path{stroke:#333333;stroke-width:2.0px;}#g .flowchart-link{stroke:#333333;fill:none;}#g .edgeLabel{background-color:#e8e8e8;text-align:center;}#g .edgeLabel rect{opacity:0.5;background-color:#e8e8e8;fill:#e8e8e8;}#g .labelBkg{background-color:rgba(232, 232, 232, 0.5);}#g .cluster rect{fill:#ffffde;stroke:#aaaa33;stroke-width:1px;}#g .cluster text{fill:#333;}#g .cluster span,#g p{color:#333;}#g div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:hsl(80, 100%, 96.2745098039%);border:1px solid #aaaa33;border-radius:2px;pointer-events:none;z-index:100;}#g .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#333;}#g :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}#g .code rect{fill:#dbeafe!important;stroke:#1d4ed8!important;stroke-width:1px!important;color:#0b2a6b!important;}#g .code polygon{fill:#dbeafe!important;stroke:#1d4ed8!important;stroke-width:1px!important;color:#0b2a6b!important;}#g .code ellipse{fill:#dbeafe!important;stroke:#1d4ed8!important;stroke-width:1px!important;color:#0b2a6b!important;}#g .code circle{fill:#dbeafe!important;stroke:#1d4ed8!important;stroke-width:1px!important;color:#0b2a6b!important;}#g .code path{fill:#dbeafe!important;stroke:#1d4ed8!important;stroke-width:1px!important;color:#0b2a6b!important;}#g .code tspan{fill:#0b2a6b!important;}#g .agent rect{fill:#ede9fe!important;stroke:#6d28d9!important;stroke-width:1px!important;color:#3b0764!important;}#g .agent polygon{fill:#ede9fe!important;stroke:#6d28d9!important;stroke-width:1px!important;color:#3b0764!important;}#g .agent ellipse{fill:#ede9fe!important;stroke:#6d28d9!important;stroke-width:1px!important;color:#3b0764!important;}#g .agent circle{fill:#ede9fe!important;stroke:#6d28d9!important;stroke-width:1px!important;color:#3b0764!important;}#g .agent path{fill:#ede9fe!important;stroke:#6d28d9!important;stroke-width:1px!important;color:#3b0764!important;}#g .agent tspan{fill:#3b0764!important;}#g .human rect{fill:#fef3c7!important;stroke:#b45309!important;stroke-width:1px!important;color:#4a2606!important;}#g .human polygon{fill:#fef3c7!important;stroke:#b45309!important;stroke-width:1px!important;color:#4a2606!important;}#g .human ellipse{fill:#fef3c7!important;stroke:#b45309!important;stroke-width:1px!important;color:#4a2606!important;}#g .human circle{fill:#fef3c7!important;stroke:#b45309!important;stroke-width:1px!important;color:#4a2606!important;}#g .human path{fill:#fef3c7!important;stroke:#b45309!important;stroke-width:1px!important;color:#4a2606!important;}#g .human tspan{fill:#4a2606!important;}</style><g><marker id="g_flowchart-pointEnd" class="marker flowchart" viewBox="0 0 10 10" refX="6" refY="5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-pointStart" class="marker flowchart" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-circleEnd" class="marker flowchart" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="g_flowchart-circleStart" class="marker flowchart" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="g_flowchart-crossEnd" class="marker cross flowchart" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-crossStart" class="marker cross flowchart" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path d="M129.367,27L129.367,32.583C129.367,38.167,129.367,49.333,129.367,59.617C129.367,69.9,129.367,79.3,129.367,84L129.367,88.7" id="L-intake-scout-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-intake LE-scout" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M129.367,137L129.367,142.583C129.367,148.167,129.367,159.333,129.367,169.617C129.367,179.9,129.367,189.3,129.367,194L129.367,198.7" id="L-scout-plan-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-scout LE-plan" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M129.367,247L129.367,252.583C129.367,258.167,129.367,269.333,129.367,279.617C129.367,289.9,129.367,299.3,129.367,304L129.367,308.7" id="L-plan-build-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-plan LE-build" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M101.384,373L96.088,378.583C90.792,384.167,80.2,395.333,81.308,405.954C82.417,416.575,95.227,426.649,101.631,431.686L108.036,436.724" id="L-build-verify-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-build LE-verify" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M129.367,467L129.367,472.583C129.367,478.167,129.367,489.333,129.367,499.617C129.367,509.9,129.367,519.3,129.367,524L129.367,528.7" id="L-verify-open_pr-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-verify LE-open_pr" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M146.532,440L153.631,434.417C160.73,428.833,174.929,417.667,177.34,407.141C179.75,396.615,170.374,386.73,165.686,381.788L160.997,376.845" id="L-verify-build-0" class=" edge-thickness-normal edge-pattern-dotted flowchart-link LS-verify LE-build" style="fill:none;stroke-width:2px;stroke-dasharray:3;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M129.367,561L129.367,566.667C129.367,572.333,129.367,583.667,129.438,594.2C129.508,604.734,129.649,614.467,129.72,619.334L129.79,624.201" id="L-open_pr-accept-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-open_pr LE-accept" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path></g><g class="edgeLabels"><g class="edgeLabel" transform="translate(129.3671875, 60.5)"><g class="label" transform="translate(-35.5703125, -8.5)"><rect rx="0" ry="0" width="71.140625" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">ticket.json</tspan></text></g></g><g class="edgeLabel" transform="translate(129.3671875, 170.5)"><g class="label" transform="translate(-56.0234375, -8.5)"><rect rx="0" ry="0" width="112.046875" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">scout-report.md</tspan></text></g></g><g class="edgeLabel" transform="translate(129.3671875, 280.5)"><g class="label" transform="translate(-28.4609375, -8.5)"><rect rx="0" ry="0" width="56.921875" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">plan.md</tspan></text></g></g><g class="edgeLabel" transform="translate(69.607421875, 406.5)"><g class="label" transform="translate(-31.2265625, -8.5)"><rect rx="0" ry="0" width="62.453125" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">worktree</tspan></text></g></g><g class="edgeLabel" transform="translate(129.3671875, 500.5)"><g class="label" transform="translate(-52.0703125, -8.5)"><rect rx="0" ry="0" width="104.140625" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">pass: worktree</tspan></text></g></g><g class="edgeLabel" transform="translate(189.126953125, 406.5)"><g class="label" transform="translate(-68.29296875, -8.5)"><rect rx="0" ry="0" width="136.5859375" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">fail: verify-report.txt</tspan></text></g></g><g class="edgeLabel" transform="translate(129.3671875, 595)"><g class="label" transform="translate(-20.453125, -9)"><rect rx="0" ry="0" width="40.90625" height="18"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">pr_url</tspan></text></g></g></g><g class="nodes"><g class="node default code flowchart-label" id="flowchart-intake-0" data-node="true" data-id="intake" transform="translate(129.3671875, 13.5)"><rect class="basic label-container" style="" rx="0" ry="0" x="-105.53125" y="-13.5" width="211.0625" height="27"></rect><g class="label" style="" transform="translate(0, -8.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Fetch ticket, create worktree</tspan></text></g></g><g class="node default agent flowchart-label" id="flowchart-scout-1" data-node="true" data-id="scout" transform="translate(129.3671875, 115.5)"><rect class="basic label-container" style="" rx="5" ry="5" x="-124.90625" y="-21.5" width="249.8125" height="43"></rect><g class="label" style="" transform="translate(0, -16.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Locate relevant code and prior art</tspan><tspan xml:space="preserve" dy="1em" x="0" class="row">opus</tspan></text></g></g><g class="node default agent flowchart-label" id="flowchart-plan-2" data-node="true" data-id="plan" transform="translate(129.3671875, 225.5)"><rect class="basic label-container" style="" rx="5" ry="5" x="-108.4609375" y="-21.5" width="216.921875" height="43"></rect><g class="label" style="" transform="translate(0, -16.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Write an implementation plan</tspan><tspan xml:space="preserve" dy="1em" x="0" class="row">opus</tspan></text></g></g><g class="node default agent flowchart-label" id="flowchart-build-3" data-node="true" data-id="build" transform="translate(129.3671875, 343.5)"><rect class="basic label-container" style="" rx="5" ry="5" x="-73.0390625" y="-29.5" width="146.078125" height="59"></rect><g class="label" style="" transform="translate(0, -24.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Implement the plan</tspan><tspan xml:space="preserve" dy="1em" x="0" class="row">sonnet</tspan><tspan xml:space="preserve" dy="1em" x="0" class="row">max 3 attempts</tspan></text></g></g><g class="node default code flowchart-label" id="flowchart-verify-4" data-node="true" data-id="verify" transform="translate(129.3671875, 453.5)"><rect class="basic label-container" style="" rx="0" ry="0" x="-79.30859375" y="-13.5" width="158.6171875" height="27"></rect><g class="label" style="" transform="translate(0, -8.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Tests, lint, typecheck</tspan></text></g></g><g class="node default code flowchart-label" id="flowchart-open_pr-5" data-node="true" data-id="open_pr" transform="translate(129.3671875, 547.5)"><rect class="basic label-container" style="" rx="0" ry="0" x="-129.3671875" y="-13.5" width="258.734375" height="27"></rect><g class="label" style="" transform="translate(0, -8.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Push branch and open pull request</tspan></text></g></g><g class="node default human flowchart-label" id="flowchart-accept-6" data-node="true" data-id="accept" transform="translate(129.3671875, 642.5)"><polygon points="6.75,0 150.25,0 157,-13.5 150.25,-27 6.75,-27 0,-13.5" class="label-container" transform="translate(-78.5,13.5)" style=""></polygon><g class="label" style="" transform="translate(0, -8.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Review and merge</tspan></text></g></g></g></g></g></svg>
+    </div>
+  </div>
+
+  <h2>Why the generated orchestrator is worth having</h2>
+  <p>Deterministic Python drives; agents are separate processes. Retries are counted
+  against the node a failure re-enters, not the checker doing its job. A retried
+  agent resumes its session, so it gets the news of the failure instead of a cold
+  restart. Every payload is a file, so one node can be rerun against fixed input.
+  Prompts travel on stdin, immune to argv ceilings and shim truncation. Each of
+  those is easy to get wrong by hand — and each is pinned by a test.</p>
+  <p><a href="https://github.com/scottconverse/WorkflowWright#quick-start">Quick start</a> ·
+     <a href="https://github.com/scottconverse/WorkflowWright/blob/main/docs/manual.md">Manual</a> ·
+     <a href="https://github.com/scottconverse/WorkflowWright/blob/main/docs/manual.md#the-traps">The traps</a></p>
+
+  <footer>MIT licensed. This page is self-contained — no CDN, no external requests —
+  for the same reason the artifacts it describes are.</footer>
+</main>
+</body>
+</html>
