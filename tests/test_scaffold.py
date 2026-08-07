@@ -236,6 +236,26 @@ class TestAgentInvocation(ScaffoldCase):
         self.assertIn("Build a widget.", prompts[0])
         self.assertIn("REJECTED: too thin", prompts[1])
 
+    def test_large_prompt_survives_the_process_boundary(self):
+        """Prompts travel on stdin because argv has hard ceilings — 32767 chars
+        under CreateProcess, 8191 through cmd.exe shims (which also truncate at
+        the first newline). A payload-bearing prompt exceeds those routinely."""
+        payload = (
+            'a line with "double quotes", \'single quotes\', a back\\slash,\n'
+            "an em dash — and a newline\n"
+        ) * 200  # ≈ 17KB, comfortably past both argv ceilings
+        pkg = self.build(self.agent_spec(), steps={
+            "judge": "exit 0\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text(payload, encoding="utf-8")
+        stub = make_stub_claude(self.dir / "stub")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, agent_cli=stub)
+        self.assertEqual(code, 0, out)
+        prompts = (self.dir / "stub" / "prompts.log").read_text(encoding="utf-8")
+        self.assertGreater(len(payload), 10_000)
+        self.assertIn(payload.strip(), prompts)
+
     def test_authoring_notes_never_reach_the_model(self):
         _, _, _, prompts = self.run_agent_flow("exit 0\n")
         self.assertNotIn("<!--", prompts[0])

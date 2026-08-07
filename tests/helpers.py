@@ -80,7 +80,7 @@ def make_stub_claude(directory, responses=None, fail_until=0):
         "import sys\n"
         "from pathlib import Path\n"
         "log = Path(__file__).resolve().parent\n"
-        "flags, prompt = sys.argv[1:-1], sys.argv[-1]\n"
+        "flags, prompt = sys.argv[1:], sys.stdin.read()\n"
         "# Log flags only, one line per invocation. The prompt is multi-line, so\n"
         "# including it would make line offsets meaningless for callers.\n"
         'with (log / "calls.log").open("a", encoding="utf-8") as f:\n'

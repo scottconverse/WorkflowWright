@@ -103,11 +103,15 @@ def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None):
         cmd += ["--model", model]
     if tools:
         cmd += ["--allowed-tools", *tools]
-    cmd.append(prompt)
 
     try:
+        # The prompt travels on stdin, not argv. Windows caps a command line at
+        # 32767 chars — 8191 through cmd.exe shims, which also truncate at the
+        # first newline — and a prompt carrying payload files exceeds that
+        # routinely. stdin has no ceiling and no quoting hazards anywhere.
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, cwd=cwd, timeout=AGENT_TIMEOUT
+            cmd, input=prompt, capture_output=True, text=True, cwd=cwd,
+            timeout=AGENT_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         return Result(False, f"agent exceeded {AGENT_TIMEOUT}s timeout", session_id)

@@ -90,7 +90,7 @@ skill/           the skill itself — this is what gets installed
   references/    design method, critique rubric, patterns, spec schema
   scripts/       render_workflow.py, scaffold_workflow.py
   assets/        a complete worked example spec
-tests/           49 tests, stdlib unittest, no dependencies
+tests/           50 tests, stdlib unittest, no dependencies
 examples/        rendered output of the bundled example spec
 ```
 
