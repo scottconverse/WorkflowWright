@@ -1,0 +1,84 @@
+{
+  "name": "ticket-to-pr",
+  "goal": "Take an accepted ticket to a pull request that passes verification, with human judgment only at intake and acceptance",
+  "trigger": "A ticket moves to Ready in the tracker",
+  "isolation": "worktree",
+  "entry": "intake",
+  "nodes": [
+    {
+      "id": "intake",
+      "label": "Fetch ticket, create worktree",
+      "kind": "code",
+      "detail": "GET the ticket from the tracker API, write ticket.json, git worktree add a branch named for the ticket id",
+      "writes": ["ticket.json", "worktree"]
+    },
+    {
+      "id": "scout",
+      "label": "Locate relevant code and prior art",
+      "kind": "agent",
+      "detail": "Read the ticket and find the files, tests, conventions, and past changes that bear on it. Do not modify anything.",
+      "model": "opus",
+      "tools": ["Read", "Grep", "Glob"],
+      "reads": ["ticket.json"],
+      "writes": ["scout-report.md"]
+    },
+    {
+      "id": "plan",
+      "label": "Write an implementation plan",
+      "kind": "agent",
+      "detail": "Turn the ticket and scout report into a concrete ordered plan: files to change, approach, and how it will be verified.",
+      "model": "opus",
+      "tools": ["Read", "Grep", "Glob", "Write"],
+      "reads": ["ticket.json", "scout-report.md"],
+      "writes": ["plan.md"]
+    },
+    {
+      "id": "build",
+      "label": "Implement the plan",
+      "kind": "agent",
+      "detail": "Execute plan.md. On a retry, the verification report explains what failed; fix that specifically rather than reworking the approach.",
+      "model": "sonnet",
+      "reads": ["plan.md", "verify-report.txt"],
+      "writes": ["worktree"],
+      "max_attempts": 3,
+      "on_exhausted": "human"
+    },
+    {
+      "id": "verify",
+      "label": "Tests, lint, typecheck",
+      "kind": "code",
+      "detail": "make verify — exits non-zero on any failure and writes verify-report.txt",
+      "reads": ["worktree"],
+      "writes": ["verify-report.txt"]
+    },
+    {
+      "id": "open_pr",
+      "label": "Push branch and open pull request",
+      "kind": "code",
+      "detail": "git push, then gh pr create with the plan as the description body",
+      "reads": ["worktree", "plan.md"],
+      "writes": ["pr_url"]
+    },
+    {
+      "id": "accept",
+      "label": "Review and merge",
+      "kind": "human",
+      "detail": "Decide whether the change is correct and wanted. Merging is irreversible enough to warrant a person.",
+      "reads": ["pr_url", "plan.md"]
+    }
+  ],
+  "edges": [
+    { "from": "intake", "to": "scout", "when": "always", "payload": "ticket.json" },
+    { "from": "scout", "to": "plan", "when": "always", "payload": "scout-report.md" },
+    { "from": "plan", "to": "build", "when": "always", "payload": "plan.md" },
+    { "from": "build", "to": "verify", "when": "always", "payload": "worktree" },
+    { "from": "verify", "to": "open_pr", "when": "pass", "payload": "worktree" },
+    { "from": "verify", "to": "build", "when": "fail", "payload": "verify-report.txt", "loop": true },
+    { "from": "open_pr", "to": "accept", "when": "always", "payload": "pr_url" }
+  ],
+  "open_questions": [
+    "How does the workflow authenticate to the tracker and to GitHub in an unattended run?",
+    "When accept rejects, does the ticket return to Ready for a fresh run, or reopen the existing worktree?",
+    "Is `make verify` fast enough to sit inside a retry loop, or does it need a quick subset for the loop and a full run before open_pr?"
+  ]
+}
