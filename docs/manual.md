@@ -3,6 +3,7 @@
 The reference for people the [README](../README.md) has already convinced. Organized
 for lookup, not persuasion.
 
+- [Installing and updating](#installing-and-updating)
 - [Concepts](#concepts)
 - [Proving a node worked](#proving-a-node-worked)
 - [The run budget](#the-run-budget)
@@ -16,6 +17,48 @@ for lookup, not persuasion.
 - [The traps](#the-traps)
 - [Maintaining the landing page](#maintaining-the-landing-page)
 - [Extending it](#extending-it)
+
+## Installing and updating
+
+A skill can live in three places. They are **separate copies that only agree when you
+make them agree**, and editing this repository changes none of them.
+
+| Where it lives | What reads it | How it gets updated |
+|---|---|---|
+| This repo, `skill/` | nothing directly — it is the source | `git pull` |
+| `~/.claude/skills/workflowwright/` | Claude Code on this machine | `make install` |
+| Your claude.ai account | Claude desktop and web, and every machine you sign into | `make package`, then upload the archive |
+
+```sh
+make install    # copy skill/ into ~/.claude/skills/
+make package    # build build/workflowwright.skill, the archive you upload
+```
+
+`make install` honours `SKILL_DIR` if you keep skills somewhere else. Without `make`,
+both targets are a directory copy and a zip; see the Makefile.
+
+**A commit is not an install, and an install is not an upload.** After changing
+anything under `skill/`, decide which copies need to follow. This is the single most
+common way to end up debugging behaviour that your source no longer contains.
+
+### Which copy am I actually running?
+
+Ask the assistant to invoke the skill and tell you the base directory it loaded from.
+That is the only reliable answer, and it is worth knowing because **a local install can
+shadow the account copy**. When both exist, one wins — and if it is the local one, then
+uploading a new version to your account changes nothing on that machine while appearing
+to succeed. Two identical copies are harmless; two copies that have drifted apart are a
+trap that gives no warning.
+
+If you want a single source of truth, keep the account copy and delete the local one —
+but upload first. Deleting the local copy while the account copy is older silently
+downgrades you at the next sync.
+
+### The `name:` in the frontmatter is an identity
+
+The account entry is keyed on it. Renaming it does not rename the account skill; it
+orphans the existing entry and creates a second one alongside. If you need to rename,
+delete the old entry deliberately rather than discovering it later.
 
 ## Concepts
 

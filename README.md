@@ -52,11 +52,18 @@ Three modes, depending on what exists already:
 ## Quick start
 
 ```sh
-make install     # copy the skill into ~/.claude/skills/
+make install     # copy skill/ into ~/.claude/skills/ — for Claude Code on this machine
+make package     # build the archive to upload — for the desktop and web clients
 make test        # run the suite — no network, credentials, or token spend
 make example     # render the bundled example spec into examples/
 make site        # rebuild the landing page in docs/ from that example
 ```
+
+Those first two are different installs, not alternatives. A skill can live in this
+repo, in `~/.claude/skills/`, and in your claude.ai account, and they only agree when
+you make them agree — see
+[installing and updating](docs/manual.md#installing-and-updating), which also covers
+how to tell which copy is actually running when more than one exists.
 
 Then just describe the problem to Claude — the skill triggers on natural phrasing:
 

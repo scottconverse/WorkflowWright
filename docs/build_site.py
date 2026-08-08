@@ -657,13 +657,19 @@ Write the answer to: run/scout.result.md
     <h2>Install the skill, or just run the scripts</h2>
     <div class="grid-2">
       <div>
-        <pre class="plain"><span class="t-dim"># as a Claude skill</span>
+        <pre class="plain"><span class="t-dim"># for Claude Code on this machine</span>
 make install
+<span class="t-dim"># for the desktop and web clients</span>
+make package   <span class="t-dim"># then upload the archive</span>
+
 <span class="t-dim"># then just describe the problem:</span>
 <span class="t-dim"># "Every time a bug comes in I read the</span>
 <span class="t-dim">#  ticket, write a fix, run the tests, and</span>
 <span class="t-dim">#  open a PR. Can we automate that?"</span></pre>
-        <p class="cap">The skill triggers on natural phrasing; you do not have to name it.</p>
+        <p class="cap">The skill triggers on natural phrasing; you do not have to name
+        it. Those two installs are different places, not alternatives — see
+        <a href="__REPO__/blob/main/docs/manual.md#installing-and-updating">installing
+        and updating</a>.</p>
       </div>
       <div>
         <pre class="plain"><span class="t-dim"># or drive the tooling directly</span>
