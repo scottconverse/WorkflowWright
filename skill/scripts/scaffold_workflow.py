@@ -54,6 +54,8 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 
 
 @dataclass
@@ -221,17 +223,102 @@ def run_step(script, *, cwd=None):
     return Result(proc.returncode == 0, (proc.stdout + proc.stderr).strip())
 
 
-def ask_human(label, detail, context_path):
-    """Block for a decision when someone is watching; park the run when nobody is.
+APPROVALS = ("y", "yes", "approve", "approved")
+REJECTIONS = ("n", "no", "reject", "rejected")
 
-    Failing loudly beats guessing. An unattended run that silently approves its own
-    work removes the only check that node existed to provide.
+
+def read_answer(text):
+    """Parse an operator's written answer into (approved, verdict, rationale).
+
+    The first line is the verdict and everything after it is why. An answer
+    that is neither an approval nor a rejection is NOT approved: an answer the
+    parser does not understand is exactly the case where a person meant
+    something specific, and reading consent into it is the one wrong way to
+    resolve the ambiguity.
     """
-    print(f"\\n=== {label} ===\\n{detail}\\nContext: {context_path}\\n")
+    lines = [line.strip() for line in text.strip().splitlines()]
+    verdict = (lines[0] if lines else "").lower().strip(".!,;: ")
+    rationale = "\\n".join(lines[1:]).strip()
+    if verdict in APPROVALS:
+        return True, verdict, rationale
+    if verdict in REJECTIONS:
+        return False, verdict, rationale
+    return False, verdict, text.strip()
+
+
+def write_decision(run_dir, node_id, *, label, detail, context, approved,
+                   verdict, rationale, mode):
+    """Record who decided what, and why. A gate nobody can audit is a gesture."""
+    record = {
+        "node": node_id,
+        "label": label,
+        "detail": detail,
+        "context": str(context),
+        "approved": approved,
+        "answer": verdict,
+        "rationale": rationale,
+        "mode": mode,
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    (Path(run_dir) / f"{node_id}.decision.json").write_text(
+        json.dumps(record, indent=2) + "\\n", encoding="utf-8"
+    )
+    return record
+
+
+def ask_human(label, detail, context_path, *, node_id="decision"):
+    """Get a decision from a person, by whatever route is actually available.
+
+    Three routes, in the order they are tried. Delegate mode parks and reads a
+    written answer, which is the only route open to someone driving a workflow
+    from inside an assistant with no terminal at all. A real terminal prompts.
+    Anything else parks without deciding, because an unattended run that
+    approves its own work removes the only check the node existed to provide.
+    """
+    run_dir = Path(context_path)
     unattended = (
         "No interactive terminal, so this run stops here rather than deciding for "
         "you. Review the context above and rerun with --from to continue."
     )
+
+    if delegating():
+        run_dir.mkdir(parents=True, exist_ok=True)
+        request_path = run_dir / f"{node_id}.decision.md"
+        answer_path = run_dir / f"{node_id}.answer.md"
+
+        if answer_path.exists():
+            raw = answer_path.read_text(encoding="utf-8")
+            consumed = run_dir / f"{node_id}.answer.consumed.md"
+            consumed.unlink(missing_ok=True)
+            answer_path.rename(consumed)
+            approved, verdict, rationale = read_answer(raw)
+            write_decision(
+                run_dir, node_id, label=label, detail=detail, context=run_dir,
+                approved=approved, verdict=verdict, rationale=rationale,
+                mode="delegated",
+            )
+            return Result(approved, f"human answered: {verdict or 'nothing'}")
+
+        request_path.write_text(
+            f"# Decision: {label}\\n\\n{detail}\\n\\n"
+            f"Context: {run_dir}\\n\\n---\\n\\n"
+            f"Write your answer to `{answer_path.name}` in this directory.\\n\\n"
+            f"The first line must be `yes` or `no`. Everything after it is kept as "
+            f"your reasoning. An answer that is neither is recorded as not "
+            f"approved, so say plainly which you mean.\\n",
+            encoding="utf-8",
+        )
+        print(
+            f"\\n=== {label} needs a decision ===\\n{detail}\\n"
+            f"Question written to: {request_path}\\n"
+            f"Write the answer to : {answer_path}\\n\\n"
+            f"First line `yes` or `no`, reasoning after. Then run this workflow "
+            f"again with the same --run-dir.",
+            file=sys.stderr,
+        )
+        raise SystemExit(NEEDS_HUMAN)
+
+    print(f"\\n=== {label} ===\\n{detail}\\nContext: {context_path}\\n")
     if not sys.stdin.isatty():
         print(unattended, file=sys.stderr)
         raise SystemExit(NEEDS_HUMAN)
@@ -242,7 +329,13 @@ def ask_human(label, detail, context_path):
         # Windows does this even for NUL, so isatty alone cannot be trusted.
         print(unattended, file=sys.stderr)
         raise SystemExit(NEEDS_HUMAN)
-    return Result(answer in ("y", "yes"), f"human answered: {answer or 'no'}")
+    approved = answer in APPROVALS
+    write_decision(
+        run_dir, node_id, label=label, detail=detail, context=context_path,
+        approved=approved, verdict=answer or "no", rationale="",
+        mode="interactive",
+    )
+    return Result(approved, f"human answered: {answer or 'no'}")
 '''
 
 
@@ -364,7 +457,8 @@ def run_node(node_id: str, ctx: Context) -> Result:
         return result
 
     if kind == "human":
-        return ask_human(node["label"], node.get("detail", ""), ctx.run_dir)
+        return ask_human(node["label"], node.get("detail", ""), ctx.run_dir,
+                         node_id=node_id)
 
     return Result(False, f"unknown node kind: {kind}")
 
@@ -386,6 +480,7 @@ def give_up(node_id: str, ctx: Context, limit: int) -> int:
             f"{node_id} could not be completed automatically",
             node.get("detail", ""),
             ctx.run_dir,
+            node_id=node_id,
         )
         return 0 if outcome.ok else 1
     return 1

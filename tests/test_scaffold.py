@@ -408,6 +408,134 @@ class TestDelegateMode(ScaffoldCase):
         self.assertTrue((self.dir / "stub" / "calls.log").exists())
 
 
+class TestHumanGateDelegation(ScaffoldCase):
+    """Human gates answerable without a terminal, and recorded when answered.
+
+    An approval that only works at a TTY is unavailable to anyone driving a
+    workflow from inside an assistant, which is where these workflows are most
+    often run. Parking a human gate the way an agent node parks makes the
+    decision possible at all — and makes recording it a byproduct rather than a
+    separate mechanism.
+    """
+
+    def gate_spec(self):
+        """Entry code node, then a human gate. Minimal, so failures are legible."""
+        return {
+            "name": "gate", "goal": "exercise a human gate", "trigger": "manual",
+            "isolation": "none", "entry": "prep",
+            "nodes": [
+                {"id": "prep", "label": "Prepare", "kind": "code", "detail": "sets up"},
+                {"id": "approve", "label": "Approve the change", "kind": "human",
+                 "detail": "Decide whether this is safe to ship."},
+                {"id": "ship", "label": "Ship", "kind": "code", "detail": "final"},
+            ],
+            "edges": [
+                {"from": "prep", "to": "approve", "when": "always", "payload": "work.txt"},
+                {"from": "approve", "to": "ship", "when": "pass", "payload": "work.txt"},
+                {"from": "approve", "to": "prep", "when": "fail", "payload": "why.txt",
+                 "loop": True},
+            ],
+            "open_questions": [],
+        }
+
+    def gate_pkg(self):
+        pkg = self.build(self.gate_spec(), steps={
+            "prep": "echo prepared\n", "ship": "echo shipped\n"})
+        # prep is a retry target, so it needs a bound; add it to the spec instead
+        # of hand-editing the generated package.
+        return pkg
+
+    def build_gate(self):
+        spec = self.gate_spec()
+        for node in spec["nodes"]:
+            if node["id"] == "prep":
+                node["max_attempts"] = 2
+                node["on_exhausted"] = "fail"
+        return self.build(spec, steps={"prep": "echo prepared\n", "ship": "echo shipped\n"})
+
+    def test_gate_parks_and_names_the_answer_file(self):
+        pkg = self.build_gate()
+        run_dir = self.dir / "run"
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        self.assertEqual(code, 75, out)
+        request = (run_dir / "approve.decision.md").read_text(encoding="utf-8")
+        self.assertIn("Approve the change", request)
+        self.assertIn("Decide whether this is safe to ship.", request)
+        self.assertIn("approve.answer.md", out)
+
+    def test_yes_approves_and_records_the_decision(self):
+        pkg = self.build_gate()
+        run_dir = self.dir / "run"
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        (run_dir / "approve.answer.md").write_text(
+            "yes\nChecked the migration against staging.", encoding="utf-8")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        self.assertEqual(code, 0, out)
+        record = json.loads((run_dir / "approve.decision.json").read_text(encoding="utf-8"))
+        self.assertEqual(record["node"], "approve")
+        self.assertTrue(record["approved"])
+        self.assertIn("staging", record["rationale"])
+        self.assertTrue(record["at"], "a decision with no timestamp is not a record")
+
+    def test_no_rejects_and_still_records(self):
+        pkg = self.build_gate()
+        run_dir = self.dir / "run"
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        (run_dir / "approve.answer.md").write_text(
+            "no\nThe rollback path is untested.", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        record = json.loads((run_dir / "approve.decision.json").read_text(encoding="utf-8"))
+        self.assertFalse(record["approved"])
+        self.assertIn("rollback", record["rationale"])
+
+    def test_an_unrecognised_answer_never_approves(self):
+        """The safety property. Ambiguity must not read as consent — an answer
+        the parser does not understand is the case where a human meant
+        something, and guessing approval is the one wrong way to resolve it."""
+        pkg = self.build_gate()
+        run_dir = self.dir / "run"
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        (run_dir / "approve.answer.md").write_text(
+            "well, maybe, if the tests look ok?", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        record = json.loads((run_dir / "approve.decision.json").read_text(encoding="utf-8"))
+        self.assertFalse(record["approved"])
+
+    def test_answer_is_consumed_so_a_later_gate_cannot_reuse_it(self):
+        pkg = self.build_gate()
+        run_dir = self.dir / "run"
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        (run_dir / "approve.answer.md").write_text("yes", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        self.assertFalse((run_dir / "approve.answer.md").exists())
+        self.assertTrue((run_dir / "approve.answer.consumed.md").exists())
+
+    def test_on_exhausted_human_parks_and_is_answerable(self):
+        """The exhaustion handoff has to be answerable too, or a bounded loop
+        that runs out simply dead-ends for anyone without a terminal."""
+        spec = self.gate_spec()
+        for node in spec["nodes"]:
+            if node["id"] == "prep":
+                node["max_attempts"] = 1
+                node["on_exhausted"] = "human"
+        pkg = self.build(spec, steps={"prep": "exit 1\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        self.assertEqual(code, 75, out)
+        self.assertTrue((run_dir / "prep.decision.md").exists(),
+                        "the exhaustion handoff must park like any other gate")
+
+    def test_subprocess_mode_gate_is_unchanged(self):
+        """Delegation is additive: without the switch, unattended still parks at
+        75 with no answer file and no record."""
+        pkg = self.build_gate()
+        run_dir = self.dir / "run"
+        code, out = run_workflow(pkg, run_dir, workdir=pkg)
+        self.assertEqual(code, 75, out)
+        self.assertIn("stops here rather than deciding for you", out)
+        self.assertFalse((run_dir / "approve.decision.json").exists())
+
+
 class TestOperatorAffordances(ScaffoldCase):
     def test_only_runs_a_single_node(self):
         """Payloads are files precisely so one node can be rerun against a fixed input."""
