@@ -39,12 +39,8 @@ uninstall: ## Remove the copy that `install` put in ~/.claude/skills/
 	@echo "note: this removes only the local copy. A plugin install is removed with"
 	@echo "      /plugin uninstall, and an account skill in its own settings."
 
-package: ## Build a distributable .skill archive
-	@rm -rf build/pkg && mkdir -p build/pkg/workflowwright
-	@cp -r skill/. build/pkg/workflowwright/
-	@cd build/pkg && zip -qr ../workflowwright.skill workflowwright \
-		-x '*__pycache__*' '*.pyc'
-	@echo "built -> build/workflowwright.skill"
+package: ## Build workflowwright.zip for a claude.ai account upload
+	$(PY) scripts/build_package.py
 
 clean:
 	@rm -rf build examples/*.html examples/*.mermaid examples/*-design.md

@@ -20,7 +20,17 @@ for lookup, not persuasion.
 
 ## Installing and updating
 
-### The normal way: install it as a plugin
+### Not with the green Code button
+
+GitHub's "Download ZIP" gives you the source tree, in which `SKILL.md` sits at
+`WorkflowWright-main/skill/SKILL.md` — two directories down. The claude.ai uploader
+requires it at the top level and rejects the archive by path, which reads like a
+problem with the skill rather than with the download. It is neither: a source zip is
+not a distributable, any more than it is for any other project.
+
+Use the plugin command or the packaged release archive below. Both are one step.
+
+### Claude Code: install it as a plugin
 
 This repository is a Claude Code plugin marketplace, so installing and removing it is
 the same two commands as any other plugin. Nothing to clone, no `make`, no Python:
@@ -43,6 +53,26 @@ To remove it:
 
 Updates come from the marketplace: `/plugin marketplace update` refreshes the catalog,
 and the plugin's `version` field decides whether you are offered a new copy.
+
+### Claude desktop or web: upload the release archive
+
+These clients read your claude.ai account rather than a marketplace, so they take a
+packaged archive with `SKILL.md` at its root:
+
+1. Download
+   [`workflowwright.zip`](https://github.com/scottconverse/WorkflowWright/releases/latest/download/workflowwright.zip)
+   from the [latest release](https://github.com/scottconverse/WorkflowWright/releases/latest).
+2. **Settings → Skills → Upload skill**, and drop the file in. A short security scan
+   runs before it becomes usable.
+3. Remove it in the same place.
+
+An account skill syncs to every machine you sign into, which is its advantage over the
+other two copies and the reason to prefer it if you work across more than one.
+
+Building that archive yourself is `make package`, or
+`python3 scripts/build_package.py` without make. The script refuses to write an archive
+whose `SKILL.md` is not at the root, because that failure is otherwise silent until an
+upload is rejected.
 
 ### The other two ways, and why they exist
 

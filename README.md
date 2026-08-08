@@ -51,18 +51,27 @@ Three modes, depending on what exists already:
 
 ## Install
 
-This repo is a Claude Code plugin marketplace. Nothing to clone, no `make`, no Python:
+> **Not with the green Code button.** That gives you the source tree, where `SKILL.md`
+> is two directories deep, and the claude.ai uploader rejects it. Use one of these.
+
+**Claude Code** — this repo is a plugin marketplace, so nothing to clone and no build
+step:
 
 ```
 /plugin marketplace add scottconverse/WorkflowWright
 /plugin install workflowwright@workflowwright
 ```
 
-And to remove it:
+Remove it with `/plugin uninstall workflowwright`.
 
-```
-/plugin uninstall workflowwright
-```
+**Claude desktop or web** — these read your claude.ai account rather than a
+marketplace, so they take the packaged archive. Download
+**[workflowwright.zip](https://github.com/scottconverse/WorkflowWright/releases/latest/download/workflowwright.zip)**
+from the [latest release](https://github.com/scottconverse/WorkflowWright/releases/latest),
+then **Settings → Skills → Upload skill**. Remove it in the same place.
+
+Either way, you never name the skill — describe the problem and it triggers on the
+phrasing.
 
 Not using Claude Code? The scripts are stdlib Python and run anywhere, and
 `workflow.py --delegate` drives a workflow from any agent host — see
