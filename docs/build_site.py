@@ -364,7 +364,7 @@ PAGE = """<!DOCTYPE html>
         <a href="#compile">One spec, four outputs</a>
         <a href="#modes">Modes</a>
         <a href="#driver">Generated code</a>
-        <a href="#start">Quick start</a>
+        <a href="#start">Install</a>
         <a href="__REPO__">GitHub</a>
       </div>
     </details>
