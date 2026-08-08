@@ -285,6 +285,129 @@ class TestAgentInvocation(ScaffoldCase):
         self.assertNotIn("TODO: state exactly", prompts[0].split("What to produce")[0])
 
 
+class TestDelegateMode(ScaffoldCase):
+    """Agent nodes done by whoever is driving, instead of by a CLI subprocess.
+
+    The mode exists for people working inside an assistant rather than a
+    terminal: no CLI on PATH, no nested session spending tokens out of sight.
+    The deterministic half must behave identically, which is what these check.
+    """
+
+    def agent_spec(self):
+        return TestAgentInvocation.agent_spec(self)
+
+    def test_parks_at_the_first_agent_node_and_writes_the_prompt(self):
+        pkg = self.build(self.agent_spec(), steps={
+            "judge": "exit 0\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        self.assertEqual(code, 76, out)
+        prompt = (run_dir / "gen.prompt.md").read_text(encoding="utf-8")
+        # The parked prompt is the fully composed one, payloads substituted —
+        # the operator must see exactly what a model would have received.
+        self.assertIn("Build a widget.", prompt)
+        self.assertNotIn("<!--", prompt)
+        self.assertIn("gen.result.md", out)
+
+    def test_answer_is_consumed_and_the_run_continues(self):
+        pkg = self.build(self.agent_spec(), steps={
+            "judge": "exit 0\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
+        self.assertEqual(run_workflow(pkg, run_dir, workdir=pkg, delegate=True)[0], 76)
+
+        (run_dir / "gen.result.md").write_text("the draft", encoding="utf-8")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("shipped", (run_dir / "ship.out").read_text(encoding="utf-8"))
+        # Consumed rather than deleted: still readable, but cannot be mistaken
+        # for the answer to a later attempt.
+        self.assertFalse((run_dir / "gen.result.md").exists())
+        self.assertTrue((run_dir / "gen.result.consumed.md").exists())
+
+    def test_retry_ceiling_survives_repeated_parking(self):
+        """The regression this mode could most easily introduce.
+
+        Each pause kills the process. If attempts were not persisted, every
+        resume would restart the count and the loop would never exhaust; if the
+        resumed attempt were counted twice, a ceiling of three would be hit in
+        two. Neither is acceptable for the thing that stops runaway spend."""
+        pkg = self.build(self.agent_spec(), steps={
+            "judge": 'echo "REJECTED: too thin"; exit 1\n', "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
+
+        parks = 0
+        for _ in range(10):
+            code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+            if code != 76:
+                break
+            parks += 1
+            (run_dir / "gen.result.md").write_text(f"draft {parks}", encoding="utf-8")
+        else:
+            self.fail("delegated loop never terminated")
+
+        # max_attempts is 3, so exactly three delegated attempts then failure.
+        self.assertEqual(parks, 3, out)
+        self.assertEqual(code, 1, out)
+        self.assertIn("giving up after 3", out)
+
+    def test_feedback_reaches_the_retried_prompt_across_a_pause(self):
+        pkg = self.build(self.agent_spec(), steps={
+            "judge": 'echo "REJECTED: too thin"; exit 1\n', "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
+
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        (run_dir / "gen.result.md").write_text("first draft", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        # Second park: the prompt must carry the checker's complaint, or the
+        # operator redoes the work blind exactly as an amnesiac retry would.
+        self.assertIn("REJECTED: too thin",
+                      (run_dir / "gen.prompt.md").read_text(encoding="utf-8"))
+
+    def test_empty_answer_is_a_failure_not_a_silent_pass(self):
+        pkg = self.build(self.agent_spec(), steps={
+            "judge": "exit 0\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        (run_dir / "gen.result.md").write_text("   \n", encoding="utf-8")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        self.assertNotEqual(code, 0, out)
+
+    def test_state_is_cleared_so_a_finished_run_does_not_resume(self):
+        pkg = self.build(self.agent_spec(), steps={
+            "judge": "exit 0\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        (run_dir / "gen.result.md").write_text("the draft", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        self.assertFalse((run_dir / "driver-state.json").exists())
+
+    def test_default_mode_still_uses_the_cli(self):
+        """Delegation is additive: without the switch nothing changes."""
+        pkg = self.build(self.agent_spec(), steps={
+            "judge": "exit 0\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
+        stub = make_stub_claude(self.dir / "stub")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, agent_cli=stub)
+        self.assertEqual(code, 0, out)
+        self.assertFalse((run_dir / "gen.prompt.md").exists(),
+                         "subprocess mode must not park or write a delegate prompt")
+        self.assertTrue((self.dir / "stub" / "calls.log").exists())
+
+
 class TestOperatorAffordances(ScaffoldCase):
     def test_only_runs_a_single_node(self):
         """Payloads are files precisely so one node can be rerun against a fixed input."""

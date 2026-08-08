@@ -117,6 +117,7 @@ in generated code that has already burned tokens discovering it.
 
 ```sh
 python3 workflow.py                    # full run from the entry node
+python3 workflow.py --delegate         # full run, but you do the agent nodes
 python3 workflow.py --from verify      # start partway through
 python3 workflow.py --only build       # run one node against the last run's payloads
 python3 workflow.py --run-dir runs/7   # keep this run's payloads separate
@@ -126,6 +127,55 @@ python3 workflow.py --workdir ~/proj   # where steps and agents execute (default
 `--only` is the reason payloads are files: you can rerun a single node against a
 fixed input while debugging it, instead of replaying the whole workflow to reach it.
 
+### Two ways to run agent nodes
+
+The deterministic half of a workflow — routing, retry ceilings, payloads, which node
+comes next — is identical either way, because it lives in the driver rather than at
+the process boundary. Only the model call moves.
+
+| | **Subprocess** (default) | **Delegate** (`--delegate`) |
+|---|---|---|
+| Agent nodes run by | an agent CLI, spawned per node | whoever is driving the workflow |
+| Needs `claude` on PATH | yes | no |
+| Runs unattended start to finish | yes | no: pauses at each agent node |
+| Session resume on retry | yes, via `--resume` | n/a — you keep your own context |
+| Suits | a terminal, CI, cron | working inside an assistant, or doing a node by hand |
+
+Neither is the lesser path. Pick by where you work.
+
+### The delegate loop
+
+Use it when there is no terminal to run an unattended job from — for example when
+you are working inside Claude Code, Cowork, or any assistant session. Rather than
+spawning a nested agent that spends tokens out of sight, the run parks and asks the
+session you are already in to do the node.
+
+Each pause writes two paths and exits **76**:
+
+```
+=== scout is delegated ===
+This node is specified for model opus, limited to tools: Read, Grep, Glob.
+Prompt written to : run/scout.prompt.md
+Write the answer to: run/scout.result.md
+```
+
+`scout.prompt.md` is the fully composed prompt with payloads already substituted and
+authoring comments stripped — exactly what a model would have received. Do that work,
+save the result to `scout.result.md`, and run the same command again with the same
+`--run-dir`. The driver picks up where it left off.
+
+Two details worth knowing. The answer file is **renamed to `.result.consumed.md`
+rather than deleted**, so a retry cannot silently re-consume the reply to an earlier
+attempt, and the run directory still reads as a transcript afterwards. And an **empty
+answer counts as a failure**, routing down the node's fail edge rather than passing
+nothing downstream.
+
+Attempt counts and the retry ceiling survive the pause: the driver persists its
+position to `driver-state.json` in the run directory before each node, and clears it
+when the run finishes. So a bounded loop stays bounded no matter how many times the
+process stops and starts, and a retried node's prompt still carries the checker's
+feedback.
+
 Environment variables, all optional:
 
 | Variable | Default | Meaning |
@@ -134,6 +184,7 @@ Environment variables, all optional:
 | `WORKFLOW_STEP_TIMEOUT` | `3600` | Seconds before a step script is killed |
 | `WORKFLOW_PERMISSION_MODE` | `acceptEdits` | Passed to the agent CLI as `--permission-mode` |
 | `WORKFLOW_AGENT_CLI` | `claude` | The agent command; may carry arguments (e.g. a test stub) |
+| `WORKFLOW_DELEGATE` | unset | Set to `1` for delegate mode; same switch as `--delegate` |
 | `WORKFLOW_BASH` | unset | Windows only: which bash runs step scripts |
 
 Exit codes:
@@ -144,9 +195,11 @@ Exit codes:
 | `1` | A node failed with no fail edge, or exhausted its retries with `on_exhausted: fail` |
 | `2` | Operator error — unknown node passed to `--only` |
 | `75` | **Parked awaiting a human.** Not an error: a human node was reached unattended. Review the run directory, then continue with `--from <node>` |
+| `76` | **Parked awaiting a delegated agent.** Write the answer file the message names, then run the same command again |
 
 75 is `EX_TEMPFAIL`, chosen so schedulers treat "waiting on a person" as retryable
-rather than broken.
+rather than broken; 76 sits beside it for the same reason. Neither means the run went
+wrong — a scheduler should distinguish both from exit 1.
 
 The run directory accumulates one file per payload edge plus `<node>.out` for every
 node's output, successful or not. A failed run leaves its evidence behind; nothing is
@@ -223,6 +276,12 @@ the checker's output back to the producer as `{{feedback}}`. A producer retried
 without feedback doesn't know what failed and usually makes a different first
 mistake instead of a fix. Also confirm the checker actually prints *why* it failed —
 `exit 1` with no output gives the producer nothing.
+
+**The workflow exits 76 every time and never gets further.**
+That is delegate mode working: it parks at each agent node by design. Write the answer
+to the `.result.md` path the message names, then rerun with the *same* `--run-dir` —
+a different run directory has no `driver-state.json` and starts over. If you meant to
+run unattended, drop `--delegate` and unset `WORKFLOW_DELEGATE`.
 
 **The workflow exits 75 and I didn't expect it.**
 A human node was reached with nobody at stdin — that's parking, not a crash (see

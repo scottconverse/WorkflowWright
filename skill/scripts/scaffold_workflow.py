@@ -28,6 +28,21 @@ RUNNER = '''"""Process boundaries: how this workflow talks to agents, shells, an
 
 Everything that leaves the Python process goes through here, so there is exactly one
 place to change when you swap the agent CLI for an SDK, add tracing, or set a budget.
+
+Agent nodes run one of two ways, and the choice is about where you work rather than
+what the workflow does:
+
+    subprocess (default)  spawn an agent CLI. Right for a terminal, CI, or cron,
+                          where an unattended run should go start to finish alone.
+    delegate              park and let the assistant you are already talking to do
+                          the node, then resume. Right when you work inside an
+                          assistant and have no terminal to run this from.
+
+Delegate mode is not a lesser path. The deterministic half — routing, retry
+ceilings, payloads, isolation of one node from the next — is identical, because it
+lives in the driver rather than here. Only the model call moves, and moving it means
+no CLI on PATH, no nested session spending tokens out of sight, and every agent step
+visible where you are working.
 """
 
 from __future__ import annotations
@@ -56,6 +71,16 @@ PERMISSION_MODE = os.environ.get("WORKFLOW_PERMISSION_MODE", "acceptEdits")
 # CLI can be swapped in without editing this file. Split with shlex so the
 # override may carry its own arguments, e.g. "python /path/to/stub.py".
 AGENT_CLI = shlex.split(os.environ.get("WORKFLOW_AGENT_CLI", "claude")) or ["claude"]
+
+NEEDS_HUMAN = 75  # EX_TEMPFAIL: the run is not wrong, it is waiting on a person
+NEEDS_AGENT = 76  # likewise, waiting on a delegated agent node
+
+
+def delegating(environ=None):
+    """Read the mode at call time so --delegate can set it before the run."""
+    if environ is None:
+        environ = os.environ
+    return environ.get("WORKFLOW_DELEGATE", "") not in ("", "0")
 
 
 def _bash(environ=None):
@@ -90,7 +115,49 @@ def _bash(environ=None):
     )
 
 
-def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None):
+def delegate_agent(prompt, *, node_id, run_dir, model=None, tools=None):
+    """Hand one agent node to the operator, or collect what they left.
+
+    One node, split across two invocations. First call writes the composed prompt
+    and parks; the next call finds the answer and carries on. The answer is renamed
+    rather than deleted, so a retry cannot silently re-consume the reply to an
+    earlier attempt, and the run directory still reads as a transcript afterwards.
+    """
+    run_dir.mkdir(parents=True, exist_ok=True)
+    prompt_path = run_dir / f"{node_id}.prompt.md"
+    result_path = run_dir / f"{node_id}.result.md"
+
+    if result_path.exists():
+        text = result_path.read_text(encoding="utf-8").strip()
+        consumed = run_dir / f"{node_id}.result.consumed.md"
+        consumed.unlink(missing_ok=True)
+        result_path.rename(consumed)
+        # An empty answer is a failure, not a silent success: it routes down the
+        # node's fail edge like any other, rather than passing nothing downstream.
+        return Result(bool(text), text or "delegated node returned nothing")
+
+    prompt_path.write_text(prompt, encoding="utf-8")
+    spec_note = ""
+    if model:
+        spec_note = f"This node is specified for model {model}"
+        if tools:
+            spec_note += f", limited to tools: {', '.join(tools)}"
+        spec_note += ".\\n"
+    print(
+        f"\\n=== {node_id} is delegated ===\\n"
+        f"{spec_note}"
+        f"Prompt written to : {prompt_path}\\n"
+        f"Write the answer to: {result_path}\\n\\n"
+        f"Do the work the prompt describes, save the result to that path, then run "
+        f"this workflow again with the same --run-dir to continue. Attempt counts "
+        f"and the retry ceiling are preserved across the pause.",
+        file=sys.stderr,
+    )
+    raise SystemExit(NEEDS_AGENT)
+
+
+def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None,
+              node_id=None, run_dir=None):
     """Invoke an agent as a subprocess and return its result plus session id.
 
     Resuming matters on retries. A producer that just failed already holds the context
@@ -98,6 +165,11 @@ def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None):
     Starting a fresh session throws away the former to deliver the latter, and usually
     produces a different first mistake rather than a fix.
     """
+    if delegating():
+        return delegate_agent(
+            prompt, node_id=node_id, run_dir=run_dir, model=model, tools=tools
+        )
+
     cmd = [*AGENT_CLI, "-p", "--output-format", "json", "--permission-mode", PERMISSION_MODE]
     if session_id:
         cmd += ["--resume", session_id]
@@ -149,9 +221,6 @@ def run_step(script, *, cwd=None):
     return Result(proc.returncode == 0, (proc.stdout + proc.stderr).strip())
 
 
-NEEDS_HUMAN = 75  # EX_TEMPFAIL: the run is not wrong, it is waiting on a person
-
-
 def ask_human(label, detail, context_path):
     """Block for a decision when someone is watching; park the run when nobody is.
 
@@ -189,22 +258,31 @@ Generated from spec.json. Regenerating overwrites this file, so put durable edit
 prompts/ and steps/ (never overwritten) or stop regenerating once you take ownership.
 
 Run:
-    python3 workflow.py                 # full run
+    python3 workflow.py                 # full run, agents via the agent CLI
+    python3 workflow.py --delegate      # full run, agents done by you
     python3 workflow.py --only build    # one node, against the last run's payloads
     python3 workflow.py --from verify   # resume partway
+
+Exit codes:
+    0   reached a terminal node
+    1   a node failed with nowhere to route, or exhausted its retries
+    2   operator error, such as an unknown node passed to --only
+    75  parked: a human node was reached with nobody watching
+    76  parked: a delegated agent node is waiting for its answer
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from runner import Result, ask_human, run_agent, run_step
+from runner import Result, ask_human, delegating, run_agent, run_step
 
 HERE = Path(__file__).parent
 ENTRY = {entry!r}
@@ -278,6 +356,8 @@ def run_node(node_id: str, ctx: Context) -> Result:
             model=node.get("model"),
             tools=node.get("tools"),
             cwd=ctx.workdir,
+            node_id=node_id,
+            run_dir=ctx.run_dir,
         )
         if result.session_id:
             ctx.sessions[node_id] = result.session_id
@@ -311,13 +391,64 @@ def give_up(node_id: str, ctx: Context, limit: int) -> int:
     return 1
 
 
+STATE_FILE = "driver-state.json"
+
+
+def save_state(ctx: Context, current: str, attempts: dict[str, int]) -> None:
+    """Record where the driver is, so a pause can be resumed exactly.
+
+    Only delegate mode pauses mid-run, but the state is cheap and writing it
+    unconditionally means a crashed subprocess run also leaves a readable record
+    of which node it died on and how many attempts it had spent.
+    """
+    (ctx.run_dir / STATE_FILE).write_text(
+        json.dumps(
+            {"current": current, "attempts": dict(attempts), "feedback": ctx.feedback},
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def load_state(ctx: Context):
+    """Return (current, attempts, feedback) from a paused run, or None."""
+    path = ctx.run_dir / STATE_FILE
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not data.get("current"):
+        return None
+    return data["current"], defaultdict(int, data.get("attempts", {})), data.get("feedback")
+
+
+def clear_state(ctx: Context) -> None:
+    (ctx.run_dir / STATE_FILE).unlink(missing_ok=True)
+
+
 def drive(ctx: Context, start: str) -> int:
     attempts: dict[str, int] = defaultdict(int)
     current = start
+    # A delegated run resumes where it parked. The attempt that parked was
+    # already counted, so the first pass through the loop must not count it
+    # again — otherwise every pause would burn a retry and a three-attempt
+    # ceiling would be reached in two.
+    resuming = False
+    if delegating():
+        saved = load_state(ctx)
+        if saved:
+            current, attempts, ctx.feedback = saved
+            resuming = True
+            log(f"resuming at {current} (attempt {attempts[current]})")
 
     while current:
         node = NODES[current]
-        attempts[current] += 1
+        if resuming:
+            resuming = False
+        else:
+            attempts[current] += 1
         limit = node.get("max_attempts", 1)
         bounded = current in RETRY_TARGETS
 
@@ -331,10 +462,15 @@ def drive(ctx: Context, start: str) -> int:
                 limit = node["max_attempts"]
                 log(f"  {current}: escalating to {ESCALATION_MODEL} for a final attempt")
             else:
+                clear_state(ctx)
                 return give_up(current, ctx, limit)
 
         suffix = f" (attempt {attempts[current]}/{limit})" if bounded else ""
         log(f"{current} [{node['kind']}] {node['label']}{suffix}")
+
+        # Written before the node runs, because a delegated node exits the
+        # process from inside run_node and this is what it resumes from.
+        save_state(ctx, current, attempts)
 
         result = run_node(current, ctx)
         ctx.write(f"{current}.out", result.output)
@@ -344,6 +480,7 @@ def drive(ctx: Context, start: str) -> int:
             edge = next_node(current, ("always", "pass"))
             if edge is None:
                 log(f"done — {current} was terminal")
+                clear_state(ctx)
                 return 0
             if edge.get("payload") and result.output:
                 ctx.write(edge["payload"], result.output)
@@ -355,6 +492,7 @@ def drive(ctx: Context, start: str) -> int:
         edge = next_node(current, ("fail",))
         if edge is None:
             # Nothing to route to, so this failure ends the run.
+            clear_state(ctx)
             return give_up(current, ctx, limit)
 
         if edge.get("payload"):
@@ -363,6 +501,7 @@ def drive(ctx: Context, start: str) -> int:
         ctx.feedback = result.output if edge.get("loop") else None
         current = edge["to"]
 
+    clear_state(ctx)
     return 0
 
 
@@ -373,7 +512,19 @@ def main() -> int:
     ap.add_argument("--workdir", default=".", help="where code and agents execute")
     ap.add_argument("--only", help="run a single node against existing payloads")
     ap.add_argument("--from", dest="start", help="start partway through")
+    ap.add_argument(
+        "--delegate",
+        action="store_true",
+        help="do agent nodes yourself instead of spawning an agent CLI: the run "
+             "parks at each one, writes the prompt, and resumes when you leave "
+             "the answer beside it (same as WORKFLOW_DELEGATE=1)",
+    )
     args = ap.parse_args()
+
+    if args.delegate:
+        # Set before anything reads it, so --delegate and the environment
+        # variable are genuinely the same switch rather than two code paths.
+        os.environ["WORKFLOW_DELEGATE"] = "1"
 
     ctx = Context(Path(args.run_dir), Path(args.workdir).resolve())
 
@@ -385,6 +536,11 @@ def main() -> int:
         ctx.write(f"{args.only}.out", result.output)
         print(result.output)
         return 0 if result.ok else 1
+
+    if args.start:
+        # An explicit starting point overrides a parked run rather than being
+        # silently ignored in favour of the saved position.
+        clear_state(ctx)
 
     return drive(ctx, args.start or ENTRY)
 

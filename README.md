@@ -106,6 +106,14 @@ Four things the generated driver gets right that are easy to get wrong by hand:
   newline — silently, so the agent answers a fragment and the run looks fine. stdin
   has no ceiling and no quoting hazards on any platform.
 
+Agent nodes run one of two ways. By default each spawns an agent CLI, which is what
+you want from a terminal, CI, or cron. With `--delegate` the run instead parks at
+each agent node, writes the composed prompt to the run directory, and continues when
+you leave the answer beside it — no CLI on PATH, and no nested session spending
+tokens out of sight. That is the mode to use from inside an assistant such as Claude
+Code or Cowork. Routing, retry ceilings, and payloads are identical either way; only
+the model call moves.
+
 The [manual](docs/manual.md) covers all of this in depth, including
 [six things that look like bugs and are not](docs/manual.md#the-traps).
 
@@ -124,12 +132,14 @@ script, or a better prompt, and the skill will tell you so.
 - **Playwright** (optional) — with it, rendered HTML artifacts embed the diagram as
   inline SVG and work offline, in sandboxed viewers, and forever; without it, the
   HTML falls back to loading Mermaid from a CDN and needs network access to draw.
-- **`claude` CLI** — needed only to *run* a generated workflow. Designing, rendering,
-  critiquing, and scaffolding all work without it.
+- **`claude` CLI** — needed only to run a generated workflow *unattended*. Designing,
+  rendering, critiquing, and scaffolding never call a model at all, and
+  `workflow.py --delegate` runs a workflow without any CLI by handing each agent node
+  to whatever assistant session you are working in.
 
 ## Tests
 
-51 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
+58 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
 
 ```sh
 python -m unittest discover -s tests

@@ -100,11 +100,13 @@ def make_stub_claude(directory, responses=None, fail_until=0):
     return f'"{sys.executable}" "{script}"'.replace(os.sep, "/")
 
 
-def run_workflow(pkg, run_dir, workdir=None, agent_cli=None, args=()):
+def run_workflow(pkg, run_dir, workdir=None, agent_cli=None, args=(), delegate=False):
     """Execute a generated workflow package and return (returncode, combined output)."""
     env = dict(os.environ)
     if agent_cli:
         env["WORKFLOW_AGENT_CLI"] = agent_cli
+    if delegate:
+        env["WORKFLOW_DELEGATE"] = "1"
     cmd = [
         sys.executable,
         str(Path(pkg) / "workflow.py"),

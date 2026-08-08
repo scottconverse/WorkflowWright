@@ -357,7 +357,7 @@
     <div class="wrap strip-in">
       <span class="fact"><b>MIT</b> licensed</span>
       <span class="fact"><b>Python 3.10+</b>, standard library only</span>
-      <span class="fact"><b>51 tests</b>, no network or token spend</span>
+      <span class="fact"><b>58 tests</b>, no network or token spend</span>
       <span class="fact">CI on <b>Linux and Windows</b></span>
       <span class="fact">Claude skill <b>+ standalone scripts</b></span>
     </div>
@@ -556,6 +556,43 @@
     </ol>
   </section>
 
+  <section class="wrap">
+    <p class="eyebrow">Terminal or assistant</p>
+    <h2>Two ways to run agent nodes, one set of guarantees</h2>
+    <div class="prose">
+      <p>Routing, retry ceilings, and payloads live in the driver, not at the process
+      boundary — so they are identical either way. Only the model call moves.</p>
+    </div>
+    <div class="grid-2">
+      <div class="panel">
+        <h3>Subprocess <span class="kind k-code" style="margin-left:6px">default</span></h3>
+        <p style="font-size:15px;color:var(--muted);margin:10px 0 0">Each agent node
+        spawns an agent CLI, and the run goes start to finish on its own. What you want
+        from a terminal, from CI, or from cron.</p>
+      </div>
+      <div class="panel">
+        <h3>Delegate <span class="kind k-agent" style="margin-left:6px">--delegate</span></h3>
+        <p style="font-size:15px;color:var(--muted);margin:10px 0 0">The run parks at each
+        agent node, writes the composed prompt to the run directory, and continues when you
+        leave the answer beside it. No CLI on PATH, and no nested session spending tokens
+        out of sight — the mode for working inside an assistant rather than a shell.</p>
+      </div>
+    </div>
+    <div style="margin-top:22px">
+      <pre><span class="t-dim">$ python3 workflow.py --delegate</span>
+[10:22:14] intake [code] Fetch ticket, create worktree
+[10:22:14] scout [agent] Locate relevant code and prior art
+
+<span class="t-ok">=== scout is delegated ===</span>
+This node is specified for model opus, limited to tools: Read, Grep, Glob.
+Prompt written to : run/scout.prompt.md
+Write the answer to: run/scout.result.md
+<span class="t-dim">exit 76 — attempt counts and the retry ceiling are preserved across the pause</span></pre>
+      <p class="cap">Real output from the bundled example. The prompt is fully composed
+      with payloads substituted, so you do exactly the work a model would have done.</p>
+    </div>
+  </section>
+
   <section id="start" class="wrap">
     <p class="eyebrow">Quick start</p>
     <h2>Install the skill, or just run the scripts</h2>
@@ -577,7 +614,7 @@ python3 skill/scripts/render_workflow.py \
 python3 skill/scripts/scaffold_workflow.py \
     spec.json --out ./my-workflow
 
-make test   <span class="t-dim"># 51 tests, no network</span></pre>
+make test   <span class="t-dim"># 58 tests, no network</span></pre>
         <p class="cap">Nothing here needs an API key. Designing and rendering never call a
         model.</p>
       </div>
@@ -600,8 +637,9 @@ make test   <span class="t-dim"># 51 tests, no network</span></pre>
       <code>worktree</code> or <code>sandbox</code> and the docs reason about the choice,
       but the generated code does not create worktrees or containers. That belongs in your
       intake step.</li>
-      <li><b>Running a workflow needs the <code>claude</code> CLI</b> on PATH. Designing,
-      rendering, critiquing, and scaffolding do not.</li>
+      <li><b>Running a workflow <em>unattended</em> needs the <code>claude</code> CLI</b>
+      on PATH. Designing, rendering, critiquing, and scaffolding never call a model at
+      all, and <code>--delegate</code> runs a workflow with no CLI involved.</li>
       <li><b>Offline diagrams need Playwright.</b> Without it, rendered artifacts fall back
       to loading Mermaid from a CDN and need network access to draw.</li>
       <li><b>The agent invocation is Claude-shaped.</b> Swapping in another CLI or an SDK
