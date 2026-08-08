@@ -11,6 +11,7 @@ for lookup, not persuasion.
 - [Platform notes: Windows](#platform-notes-windows)
 - [Troubleshooting](#troubleshooting)
 - [The traps](#the-traps)
+- [Maintaining the landing page](#maintaining-the-landing-page)
 - [Extending it](#extending-it)
 
 ## Concepts
@@ -33,7 +34,12 @@ schema cannot disagree. The shape in brief:
   that omit these.
 - **Isolation** declares where runs execute: `none`, `worktree` (one git worktree per
   run — parallel runs can't trample each other), or `sandbox` (a container or VM per
-  run — survives destructive mistakes). See the schema for the trade-offs.
+  run — survives destructive mistakes). See the schema for the trade-offs. Note that
+  this field is a **design decision the tooling records and reasons about, not one it
+  implements**: the generated package prints the declared mode in its docs but never
+  creates a worktree or a container. Creating and tearing down the isolated
+  environment belongs in your entry node — the bundled example spec does it in
+  `intake`.
 
 ## The three modes
 
@@ -275,6 +281,26 @@ one, the suite will tell you which conviction you've just violated.
    `isatty() == true` even for `NUL`. EOF on a claimed TTY means nobody is there;
    the run parks at 75 with the same explanation either way. Pinned by
    `test_human_node_parks_instead_of_self_approving`.
+
+## Maintaining the landing page
+
+`docs/index.html` is generated, not hand-edited. `docs/build_site.py` holds the markup
+and styles and embeds the diagram by extracting the inline SVG from
+`examples/ticket-to-pr.html` — so the picture on the site is the tool's real output for
+the bundled example spec.
+
+```sh
+make site         # rebuild docs/index.html
+make site-check   # fail if it is stale (CI runs this)
+```
+
+To change the diagram, edit `skill/assets/example-spec.json`, run `make example` on a
+machine with Playwright installed, then `make site`. Re-rendering without Playwright
+replaces the artifact's inline SVG with a CDN fallback, and `build_site.py` refuses to
+build from that rather than shipping a page whose diagram needs the network.
+
+The page is intentionally self-contained: no CDN, no web font, no analytics, no external
+requests of any kind — the same constraint the artifacts hold themselves to.
 
 ## Extending it
 

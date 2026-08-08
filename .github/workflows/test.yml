@@ -20,6 +20,10 @@ jobs:
       # tests skip cleanly when absent, so CI deliberately does not install it.
       - name: Run tests
         run: make test
+      # Before `make example`, which rewrites the artifact this reads: without
+      # Playwright the re-render has no inline SVG to check against.
+      - name: Check the landing page is not stale
+        run: make site-check
       - name: Render the example
         run: make example
 

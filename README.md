@@ -55,6 +55,7 @@ Three modes, depending on what exists already:
 make install     # copy the skill into ~/.claude/skills/
 make test        # run the suite — no network, credentials, or token spend
 make example     # render the bundled example spec into examples/
+make site        # rebuild the landing page in docs/ from that example
 ```
 
 Then just describe the problem to Claude — the skill triggers on natural phrasing:

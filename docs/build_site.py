@@ -1,13 +1,59 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WorkflowWright — assign each step to the cheapest resource that can do it</title>
-<meta name="description" content="Design agent workflows by assigning each step to code, an agent, or a human — then compile one spec into a design doc, a diagram, and a runnable orchestrator with bounded retries.">
-<meta name="color-scheme" content="light dark">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='0' y='1' width='16' height='4' rx='1.4' fill='%231d4ed8'/%3E%3Crect x='0' y='6.5' width='16' height='4' rx='1.4' fill='%236d28d9'/%3E%3Crect x='0' y='12' width='16' height='4' rx='1.4' fill='%23b45309'/%3E%3C/svg%3E">
-<style>
+#!/usr/bin/env python3
+"""Build docs/index.html, the GitHub Pages landing page.
+
+Usage:
+    python3 docs/build_site.py            # writes docs/index.html
+    python3 docs/build_site.py --check    # verify it is up to date, write nothing
+
+The diagram on the page is not hand-copied: it is extracted from the rendered
+example artifact in examples/, which render_workflow.py generates from
+skill/assets/example-spec.json. So the picture on the landing page is the real
+output of the tool the page describes, and regenerating the example updates the
+site. That is the same rule the product itself enforces — one source, generated
+outputs, no hand-editing — and a landing page that pasted a stale copy of its
+own diagram would be arguing against its own thesis.
+
+The page is deliberately self-contained: no CDN, no external stylesheet, no web
+font, no analytics. It ships the same way the artifacts do, and for the same
+reason — it has to render offline, in a sandboxed viewer, and in five years.
+
+Placeholders are __UPPERCASE__ rather than str.format fields because the CSS is
+full of braces; render_workflow.py does the same for the same reason.
+"""
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent
+EXAMPLE_ARTIFACT = REPO / "examples" / "ticket-to-pr.html"
+OUT = HERE / "index.html"
+
+REPO_URL = "https://github.com/scottconverse/WorkflowWright"
+
+
+def extract_diagram(path):
+    """Pull the pre-rendered inline SVG out of a rendered artifact.
+
+    Returns None when the artifact was rendered without Playwright, in which
+    case it carries a CDN script tag instead of an SVG — and the caller should
+    fail loudly rather than shipping a page with a hole where the proof goes.
+    """
+    html = path.read_text(encoding="utf-8")
+    match = re.search(r"<svg\b.*?</svg>", html, re.DOTALL)
+    if not match:
+        return None
+    svg = match.group(0)
+    # The artifact sets a fixed max-width for print; the page is responsive.
+    svg = re.sub(r'style="max-width:[^"]*"', 'style="max-width:100%"', svg, count=1)
+    return svg
+
+
+# --------------------------------------------------------------------- styles
+
+STYLES = """
   /* Tokens are inherited from the artifact template in
      skill/scripts/render_workflow.py so the site and the tool's own output
      look like the same product. The three kind colours are load-bearing:
@@ -283,20 +329,33 @@
   .foot a { color: var(--muted); text-decoration: none; }
   .foot a:hover { color: var(--ink); text-decoration: underline; }
   .foot .sep { margin-left: auto; }
-</style>
+"""
+
+# ------------------------------------------------------------------ page body
+
+PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WorkflowWright — assign each step to the cheapest resource that can do it</title>
+<meta name="description" content="Design agent workflows by assigning each step to code, an agent, or a human — then compile one spec into a design doc, a diagram, and a runnable orchestrator with bounded retries.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,__FAVICON__">
+<style>__STYLES__</style>
 </head>
 <body>
 
 <nav class="nav">
   <div class="wrap nav-in">
-    <a class="brand" href="#top"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true" fill="none"><rect x="0" y="1" width="16" height="4" rx="1.4" fill="#1d4ed8"/><rect x="0" y="6.5" width="16" height="4" rx="1.4" fill="#6d28d9"/><rect x="0" y="12" width="16" height="4" rx="1.4" fill="#b45309"/></svg> WorkflowWright</a>
+    <a class="brand" href="#top">__MARK__ WorkflowWright</a>
     <div class="nav-links">
       <a href="#idea">The idea</a>
       <a href="#compile">One spec</a>
       <a href="#modes">Modes</a>
       <a href="#driver">Generated code</a>
       <a href="#start">Quick start</a>
-      <a class="ghost" href="https://github.com/scottconverse/WorkflowWright">GitHub</a>
+      <a class="ghost" href="__REPO__">GitHub</a>
     </div>
     <details class="menu">
       <summary aria-label="Menu">Menu</summary>
@@ -306,7 +365,7 @@
         <a href="#modes">Modes</a>
         <a href="#driver">Generated code</a>
         <a href="#start">Quick start</a>
-        <a href="https://github.com/scottconverse/WorkflowWright">GitHub</a>
+        <a href="__REPO__">GitHub</a>
       </div>
     </details>
   </div>
@@ -324,8 +383,8 @@
         person — then compiles that decision into a diagram and a runnable orchestrator
         that cannot drift apart.</p>
         <div class="cta-row">
-          <a class="btn" href="https://github.com/scottconverse/WorkflowWright">View on GitHub</a>
-          <a class="btn-2" href="https://github.com/scottconverse/WorkflowWright/blob/main/docs/manual.md">Read the manual</a>
+          <a class="btn" href="__REPO__">View on GitHub</a>
+          <a class="btn-2" href="__REPO__/blob/main/docs/manual.md">Read the manual</a>
         </div>
       </div>
 
@@ -450,7 +509,7 @@
         </div>
       </div>
       <figure>
-        <div class="diagram"><svg id="g" width="100%" xmlns="http://www.w3.org/2000/svg" style="max-width:100%" viewBox="-8 -8 274.734375 672" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#g{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#333;}#g .error-icon{fill:#552222;}#g .error-text{fill:#552222;stroke:#552222;}#g .edge-thickness-normal{stroke-width:2px;}#g .edge-thickness-thick{stroke-width:3.5px;}#g .edge-pattern-solid{stroke-dasharray:0;}#g .edge-pattern-dashed{stroke-dasharray:3;}#g .edge-pattern-dotted{stroke-dasharray:2;}#g .marker{fill:#333333;stroke:#333333;}#g .marker.cross{stroke:#333333;}#g svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#g .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#333;}#g .cluster-label text{fill:#333;}#g .cluster-label span,#g p{color:#333;}#g .label text,#g span,#g p{fill:#333;color:#333;}#g .node rect,#g .node circle,#g .node ellipse,#g .node polygon,#g .node path{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#g .flowchart-label text{text-anchor:middle;}#g .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#g .node .label{text-align:center;}#g .node.clickable{cursor:pointer;}#g .arrowheadPath{fill:#333333;}#g .edgePath .path{stroke:#333333;stroke-width:2.0px;}#g .flowchart-link{stroke:#333333;fill:none;}#g .edgeLabel{background-color:#e8e8e8;text-align:center;}#g .edgeLabel rect{opacity:0.5;background-color:#e8e8e8;fill:#e8e8e8;}#g .labelBkg{background-color:rgba(232, 232, 232, 0.5);}#g .cluster rect{fill:#ffffde;stroke:#aaaa33;stroke-width:1px;}#g .cluster text{fill:#333;}#g .cluster span,#g p{color:#333;}#g div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:hsl(80, 100%, 96.2745098039%);border:1px solid #aaaa33;border-radius:2px;pointer-events:none;z-index:100;}#g .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#333;}#g :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}#g .code rect{fill:#dbeafe!important;stroke:#1d4ed8!important;stroke-width:1px!important;color:#0b2a6b!important;}#g .code polygon{fill:#dbeafe!important;stroke:#1d4ed8!important;stroke-width:1px!important;color:#0b2a6b!important;}#g .code ellipse{fill:#dbeafe!important;stroke:#1d4ed8!important;stroke-width:1px!important;color:#0b2a6b!important;}#g .code circle{fill:#dbeafe!important;stroke:#1d4ed8!important;stroke-width:1px!important;color:#0b2a6b!important;}#g .code path{fill:#dbeafe!important;stroke:#1d4ed8!important;stroke-width:1px!important;color:#0b2a6b!important;}#g .code tspan{fill:#0b2a6b!important;}#g .agent rect{fill:#ede9fe!important;stroke:#6d28d9!important;stroke-width:1px!important;color:#3b0764!important;}#g .agent polygon{fill:#ede9fe!important;stroke:#6d28d9!important;stroke-width:1px!important;color:#3b0764!important;}#g .agent ellipse{fill:#ede9fe!important;stroke:#6d28d9!important;stroke-width:1px!important;color:#3b0764!important;}#g .agent circle{fill:#ede9fe!important;stroke:#6d28d9!important;stroke-width:1px!important;color:#3b0764!important;}#g .agent path{fill:#ede9fe!important;stroke:#6d28d9!important;stroke-width:1px!important;color:#3b0764!important;}#g .agent tspan{fill:#3b0764!important;}#g .human rect{fill:#fef3c7!important;stroke:#b45309!important;stroke-width:1px!important;color:#4a2606!important;}#g .human polygon{fill:#fef3c7!important;stroke:#b45309!important;stroke-width:1px!important;color:#4a2606!important;}#g .human ellipse{fill:#fef3c7!important;stroke:#b45309!important;stroke-width:1px!important;color:#4a2606!important;}#g .human circle{fill:#fef3c7!important;stroke:#b45309!important;stroke-width:1px!important;color:#4a2606!important;}#g .human path{fill:#fef3c7!important;stroke:#b45309!important;stroke-width:1px!important;color:#4a2606!important;}#g .human tspan{fill:#4a2606!important;}</style><g><marker id="g_flowchart-pointEnd" class="marker flowchart" viewBox="0 0 10 10" refX="6" refY="5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-pointStart" class="marker flowchart" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-circleEnd" class="marker flowchart" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="g_flowchart-circleStart" class="marker flowchart" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="g_flowchart-crossEnd" class="marker cross flowchart" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-crossStart" class="marker cross flowchart" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path d="M129.367,27L129.367,32.583C129.367,38.167,129.367,49.333,129.367,59.617C129.367,69.9,129.367,79.3,129.367,84L129.367,88.7" id="L-intake-scout-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-intake LE-scout" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M129.367,137L129.367,142.583C129.367,148.167,129.367,159.333,129.367,169.617C129.367,179.9,129.367,189.3,129.367,194L129.367,198.7" id="L-scout-plan-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-scout LE-plan" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M129.367,247L129.367,252.583C129.367,258.167,129.367,269.333,129.367,279.617C129.367,289.9,129.367,299.3,129.367,304L129.367,308.7" id="L-plan-build-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-plan LE-build" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M101.384,373L96.088,378.583C90.792,384.167,80.2,395.333,81.308,405.954C82.417,416.575,95.227,426.649,101.631,431.686L108.036,436.724" id="L-build-verify-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-build LE-verify" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M129.367,467L129.367,472.583C129.367,478.167,129.367,489.333,129.367,499.617C129.367,509.9,129.367,519.3,129.367,524L129.367,528.7" id="L-verify-open_pr-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-verify LE-open_pr" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M146.532,440L153.631,434.417C160.73,428.833,174.929,417.667,177.34,407.141C179.75,396.615,170.374,386.73,165.686,381.788L160.997,376.845" id="L-verify-build-0" class=" edge-thickness-normal edge-pattern-dotted flowchart-link LS-verify LE-build" style="fill:none;stroke-width:2px;stroke-dasharray:3;" marker-end="url(#g_flowchart-pointEnd)"></path><path d="M129.367,561L129.367,566.667C129.367,572.333,129.367,583.667,129.438,594.2C129.508,604.734,129.649,614.467,129.72,619.334L129.79,624.201" id="L-open_pr-accept-0" class=" edge-thickness-normal edge-pattern-solid flowchart-link LS-open_pr LE-accept" style="fill:none;" marker-end="url(#g_flowchart-pointEnd)"></path></g><g class="edgeLabels"><g class="edgeLabel" transform="translate(129.3671875, 60.5)"><g class="label" transform="translate(-35.5703125, -8.5)"><rect rx="0" ry="0" width="71.140625" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">ticket.json</tspan></text></g></g><g class="edgeLabel" transform="translate(129.3671875, 170.5)"><g class="label" transform="translate(-56.0234375, -8.5)"><rect rx="0" ry="0" width="112.046875" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">scout-report.md</tspan></text></g></g><g class="edgeLabel" transform="translate(129.3671875, 280.5)"><g class="label" transform="translate(-28.4609375, -8.5)"><rect rx="0" ry="0" width="56.921875" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">plan.md</tspan></text></g></g><g class="edgeLabel" transform="translate(69.607421875, 406.5)"><g class="label" transform="translate(-31.2265625, -8.5)"><rect rx="0" ry="0" width="62.453125" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">worktree</tspan></text></g></g><g class="edgeLabel" transform="translate(129.3671875, 500.5)"><g class="label" transform="translate(-52.0703125, -8.5)"><rect rx="0" ry="0" width="104.140625" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">pass: worktree</tspan></text></g></g><g class="edgeLabel" transform="translate(189.126953125, 406.5)"><g class="label" transform="translate(-68.29296875, -8.5)"><rect rx="0" ry="0" width="136.5859375" height="17"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">fail: verify-report.txt</tspan></text></g></g><g class="edgeLabel" transform="translate(129.3671875, 595)"><g class="label" transform="translate(-20.453125, -9)"><rect rx="0" ry="0" width="40.90625" height="18"></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">pr_url</tspan></text></g></g></g><g class="nodes"><g class="node default code flowchart-label" id="flowchart-intake-0" data-node="true" data-id="intake" transform="translate(129.3671875, 13.5)"><rect class="basic label-container" style="" rx="0" ry="0" x="-105.53125" y="-13.5" width="211.0625" height="27"></rect><g class="label" style="" transform="translate(0, -8.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Fetch ticket, create worktree</tspan></text></g></g><g class="node default agent flowchart-label" id="flowchart-scout-1" data-node="true" data-id="scout" transform="translate(129.3671875, 115.5)"><rect class="basic label-container" style="" rx="5" ry="5" x="-124.90625" y="-21.5" width="249.8125" height="43"></rect><g class="label" style="" transform="translate(0, -16.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Locate relevant code and prior art</tspan><tspan xml:space="preserve" dy="1em" x="0" class="row">opus</tspan></text></g></g><g class="node default agent flowchart-label" id="flowchart-plan-2" data-node="true" data-id="plan" transform="translate(129.3671875, 225.5)"><rect class="basic label-container" style="" rx="5" ry="5" x="-108.4609375" y="-21.5" width="216.921875" height="43"></rect><g class="label" style="" transform="translate(0, -16.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Write an implementation plan</tspan><tspan xml:space="preserve" dy="1em" x="0" class="row">opus</tspan></text></g></g><g class="node default agent flowchart-label" id="flowchart-build-3" data-node="true" data-id="build" transform="translate(129.3671875, 343.5)"><rect class="basic label-container" style="" rx="5" ry="5" x="-73.0390625" y="-29.5" width="146.078125" height="59"></rect><g class="label" style="" transform="translate(0, -24.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Implement the plan</tspan><tspan xml:space="preserve" dy="1em" x="0" class="row">sonnet</tspan><tspan xml:space="preserve" dy="1em" x="0" class="row">max 3 attempts</tspan></text></g></g><g class="node default code flowchart-label" id="flowchart-verify-4" data-node="true" data-id="verify" transform="translate(129.3671875, 453.5)"><rect class="basic label-container" style="" rx="0" ry="0" x="-79.30859375" y="-13.5" width="158.6171875" height="27"></rect><g class="label" style="" transform="translate(0, -8.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Tests, lint, typecheck</tspan></text></g></g><g class="node default code flowchart-label" id="flowchart-open_pr-5" data-node="true" data-id="open_pr" transform="translate(129.3671875, 547.5)"><rect class="basic label-container" style="" rx="0" ry="0" x="-129.3671875" y="-13.5" width="258.734375" height="27"></rect><g class="label" style="" transform="translate(0, -8.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Push branch and open pull request</tspan></text></g></g><g class="node default human flowchart-label" id="flowchart-accept-6" data-node="true" data-id="accept" transform="translate(129.3671875, 642.5)"><polygon points="6.75,0 150.25,0 157,-13.5 150.25,-27 6.75,-27 0,-13.5" class="label-container" transform="translate(-78.5,13.5)" style=""></polygon><g class="label" style="" transform="translate(0, -8.5)"><rect></rect><text style=""><tspan xml:space="preserve" dy="1em" x="0" class="row">Review and merge</tspan></text></g></g></g></g></g></svg></div>
+        <div class="diagram">__DIAGRAM__</div>
         <ul class="legend">
           <li><i class="sw" style="background:var(--code-bg);border:1px solid var(--code)"></i> Code — deterministic</li>
           <li><i class="sw" style="background:var(--agent-bg);border:1px solid var(--agent)"></i> Agent — judgment</li>
@@ -571,10 +630,10 @@ make install
       </div>
       <div>
         <pre class="plain"><span class="t-dim"># or drive the tooling directly</span>
-python3 skill/scripts/render_workflow.py \
+python3 skill/scripts/render_workflow.py \\
     spec.json --out ./out
 
-python3 skill/scripts/scaffold_workflow.py \
+python3 skill/scripts/scaffold_workflow.py \\
     spec.json --out ./my-workflow
 
 make test   <span class="t-dim"># 51 tests, no network</span></pre>
@@ -615,8 +674,8 @@ make test   <span class="t-dim"># 51 tests, no network</span></pre>
     — seven nodes, a bounded loop, humans at both ends. Adapt it rather than starting from
     an empty file.</p>
     <div class="cta-row" style="justify-content:center">
-      <a class="btn" href="https://github.com/scottconverse/WorkflowWright">View on GitHub</a>
-      <a class="btn-2" href="https://github.com/scottconverse/WorkflowWright/blob/main/skill/assets/example-spec.json">Read the example spec</a>
+      <a class="btn" href="__REPO__">View on GitHub</a>
+      <a class="btn-2" href="__REPO__/blob/main/skill/assets/example-spec.json">Read the example spec</a>
     </div>
   </section>
 
@@ -625,14 +684,77 @@ make test   <span class="t-dim"># 51 tests, no network</span></pre>
 <footer>
   <div class="wrap foot">
     <span>WorkflowWright</span>
-    <a href="https://github.com/scottconverse/WorkflowWright">Repository</a>
-    <a href="https://github.com/scottconverse/WorkflowWright/blob/main/docs/manual.md">Manual</a>
-    <a href="https://github.com/scottconverse/WorkflowWright/blob/main/docs/manual.md#the-traps">The traps</a>
-    <a href="https://github.com/scottconverse/WorkflowWright/blob/main/skill/references/spec-schema.md">Spec schema</a>
-    <a href="https://github.com/scottconverse/WorkflowWright/issues">Issues</a>
-    <span class="sep"><a href="https://github.com/scottconverse/WorkflowWright/blob/main/LICENSE">MIT licensed</a></span>
+    <a href="__REPO__">Repository</a>
+    <a href="__REPO__/blob/main/docs/manual.md">Manual</a>
+    <a href="__REPO__/blob/main/docs/manual.md#the-traps">The traps</a>
+    <a href="__REPO__/blob/main/skill/references/spec-schema.md">Spec schema</a>
+    <a href="__REPO__/issues">Issues</a>
+    <span class="sep"><a href="__REPO__/blob/main/LICENSE">MIT licensed</a></span>
   </div>
 </footer>
 
 </body>
 </html>
+"""
+
+# The mark: three stacked bars in the kind colours — code, agent, human.
+MARK = (
+    '<svg class="mark" viewBox="0 0 16 16" aria-hidden="true" fill="none">'
+    '<rect x="0" y="1" width="16" height="4" rx="1.4" fill="#1d4ed8"/>'
+    '<rect x="0" y="6.5" width="16" height="4" rx="1.4" fill="#6d28d9"/>'
+    '<rect x="0" y="12" width="16" height="4" rx="1.4" fill="#b45309"/>'
+    "</svg>"
+)
+
+FAVICON = (
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E"
+    "%3Crect x='0' y='1' width='16' height='4' rx='1.4' fill='%231d4ed8'/%3E"
+    "%3Crect x='0' y='6.5' width='16' height='4' rx='1.4' fill='%236d28d9'/%3E"
+    "%3Crect x='0' y='12' width='16' height='4' rx='1.4' fill='%23b45309'/%3E"
+    "%3C/svg%3E"
+)
+
+
+def build():
+    if not EXAMPLE_ARTIFACT.exists():
+        sys.exit(
+            f"missing {EXAMPLE_ARTIFACT.relative_to(REPO)} — run `make example` first."
+        )
+    svg = extract_diagram(EXAMPLE_ARTIFACT)
+    if svg is None:
+        sys.exit(
+            f"{EXAMPLE_ARTIFACT.relative_to(REPO)} has no inline SVG, so it was rendered "
+            "without Playwright. The page embeds the diagram directly and must not fall "
+            "back to a CDN. Install Playwright and re-run `make example`."
+        )
+    return (
+        PAGE.replace("__STYLES__", STYLES)
+        .replace("__DIAGRAM__", svg)
+        .replace("__MARK__", MARK)
+        .replace("__FAVICON__", FAVICON)
+        .replace("__REPO__", REPO_URL)
+    )
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="exit non-zero if index.html is out of date; write nothing",
+    )
+    args = ap.parse_args()
+
+    page = build()
+    if args.check:
+        current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
+        if current != page:
+            sys.exit("docs/index.html is out of date — run `make site`.")
+        print("docs/index.html is up to date")
+        return
+    OUT.write_text(page, encoding="utf-8")
+    print(f"wrote {OUT.relative_to(REPO)} ({len(page):,} bytes, diagram inlined)")
+
+
+if __name__ == "__main__":
+    main()

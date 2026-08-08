@@ -2,7 +2,7 @@ SKILL_DIR ?= $(HOME)/.claude/skills/workflowwright
 PY        ?= python3
 SPEC      ?= skill/assets/example-spec.json
 
-.PHONY: help test example scaffold install package clean
+.PHONY: help test example scaffold install package site site-check clean
 help:
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
 
@@ -14,6 +14,15 @@ example: ## Render the bundled example spec into examples/
 
 scaffold: ## Generate a runnable workflow package from SPEC into build/
 	$(PY) skill/scripts/scaffold_workflow.py $(SPEC) --out build/workflow
+
+# Deliberately does not depend on `example`: re-rendering without Playwright
+# replaces the committed artifact's inline SVG with a CDN fallback, and the
+# page embeds that diagram directly. Refresh the example explicitly instead.
+site: ## Rebuild the GitHub Pages landing page from the rendered example
+	$(PY) docs/build_site.py
+
+site-check: ## Fail if docs/index.html is stale relative to the example artifact
+	$(PY) docs/build_site.py --check
 
 install: ## Copy the skill into ~/.claude/skills/
 	@mkdir -p $(SKILL_DIR)
