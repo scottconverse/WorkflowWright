@@ -139,30 +139,50 @@ python3 scripts/scaffold_workflow.py spec.json --out ./my-workflow
 This refuses to run on a spec with structural problems, which is deliberate: an unbounded
 retry loop is far cheaper to fix in the spec than in generated code.
 
-It produces a package where orchestration is deterministic Python and agents are invoked
-as separate processes:
+It produces a package where orchestration is deterministic Python and the model call
+happens at a single process boundary:
 
 | Path | Regenerated | What it is |
 |---|---|---|
 | `workflow.py` | overwritten | Node table, driver, retry bounds, routing |
 | `runner.py` | overwritten | The only place the workflow leaves the Python process |
+| `spec.json` | overwritten | The source, copied in beside what it generated |
 | `prompts/*.md` | **never** | One prompt per agent node, with payload placeholders |
 | `steps/*.sh` | **never** | One script per code node; exit status is the verdict |
 | `README.md` | overwritten | Checklist of what must be filled in before it runs |
 
-The generated code does three things that are easy to get wrong by hand: it counts
+The generated code does four things that are easy to get wrong by hand: it counts
 attempts against the node a failure edge *re-enters* rather than the checker that failed,
 it resumes an agent's prior session on retry so the producer gets the news of the failure
-rather than a cold restart, and it writes every payload to a run directory so
-`--only <node>` can rerun one node against a fixed input.
+rather than a cold restart, it writes every payload to a run directory so
+`--only <node>` can rerun one node against a fixed input, and it sends prompts on stdin
+rather than argv, which have hard length ceilings and silently truncate on Windows.
+
+### Two ways to run agent nodes
+
+By default each agent node spawns an agent CLI, which is what an unattended run from a
+terminal, CI, or cron wants. `python3 workflow.py --delegate` instead parks at each agent
+node, writes the composed prompt to the run directory, and resumes when an answer file
+appears beside it.
+
+Recommend delegate mode whenever the user works inside an assistant rather than a shell —
+Claude Code, Cowork, the desktop and web clients, or any other agent host. It needs no CLI
+on PATH and spawns no nested session spending tokens out of sight, and it is the only way
+to run a workflow for someone who has no terminal. **If you are the assistant driving a
+delegated run, you do the agent nodes yourself**: read the parked prompt, do the work,
+write the answer file, run the workflow again.
+
+Routing, retry ceilings, and payloads are identical in both modes, because they live in
+the driver rather than at the process boundary. Only the model call moves.
 
 After generating, fill in the prompts and steps, or hand the user the checklist. The
 scaffold is a skeleton with honest TODOs — don't describe it as working until the steps
 actually do something. Prompts are where a well-structured workflow still goes wrong, so
 if you write them, make them specific.
 
-To swap the agent invocation for an SDK, a different CLI, or a mock for testing, change
-`run_agent` in `runner.py`. Nothing else touches the outside world.
+To swap the agent invocation for an SDK or a different CLI, change `run_agent` in
+`runner.py`; `WORKFLOW_AGENT_CLI` already substitutes the command itself, which is enough
+for a mock in tests. Nothing else touches the outside world.
 
 ---
 
@@ -181,11 +201,13 @@ The HTML pre-renders the diagram to inline SVG via headless Chromium when Playwr
 available, so the artifact has no runtime dependencies and works offline. It falls back to
 a CDN script tag otherwise. `--no-prerender` forces the fallback.
 
-Deliver the design doc and the HTML with `SendUserFile`. A workflow design is something
-people return to and revise, so also persist the HTML with
-`mcp__remote-devices__create_artifact` using the `file_uuid` that `SendUserFile` returns —
-that keeps it in their artifact gallery rather than buried in one conversation. Use
-`update_artifact` when the spec changes.
+Deliver the design doc and the HTML with `SendUserFile`, alongside the spec itself.
+
+A workflow design is something people return to and revise, so if the host offers a way to
+persist a page — an artifact tool, a gallery, a wiki — use it so the design outlives one
+conversation. Check what this host actually provides rather than assuming: tool names
+differ between hosts and a hard-coded one fails silently on every host but the one it was
+written for.
 
 Keep `spec.json` alongside the outputs and tell the user it is the source. Edits belong
 in the spec followed by a re-render; editing a generated file guarantees drift.
