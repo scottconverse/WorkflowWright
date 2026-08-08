@@ -6,17 +6,17 @@
 
 **Isolation.** `worktree`
 
-**Shape.** 7 nodes — 3 code, 3 agent, 1 human; 7 edges, 1 of them loops.
+**Shape.** 7 nodes — 3 code, 3 agent, 1 human; 8 edges, 2 of them loops.
 
 ## Diagram
 
 ```mermaid
 flowchart TD
     intake["Fetch ticket, create worktree"]
-    scout("Locate relevant code and prior art<br/>opus")
+    scout("Locate relevant code and prior art<br/>opus<br/>max 2 attempts<br/>proves: scout-report.md")
     plan("Write an implementation plan<br/>opus")
     build("Implement the plan<br/>sonnet<br/>max 3 attempts")
-    verify["Tests, lint, typecheck"]
+    verify["Tests, lint, typecheck<br/>proves: verify-report.txt"]
     open_pr["Push branch and open pull request"]
     accept{{"Review and merge"}}
 
@@ -26,6 +26,7 @@ flowchart TD
     build -- "worktree" --> verify
     verify -- "pass: worktree" --> open_pr
     verify -. "fail: verify-report.txt" .-> build
+    scout -. "fail: scout-shortfall.txt" .-> scout
     open_pr -- "pr_url" --> accept
 
     classDef code fill:#dbeafe,stroke:#1d4ed8,stroke-width:1px,color:#0b2a6b;
@@ -41,12 +42,14 @@ flowchart TD
 | Node | Who | What | Model | Retries | Proves it worked |
 |---|---|---|---|---|---|
 | `intake` | Code | GET the ticket from the tracker API, write ticket.json, git worktree add a branch named for the ticket id | — | — | — |
-| `scout` | Agent | Read the ticket and find the files, tests, conventions, and past changes that bear on it. Do not modify anything. | opus | — | — |
+| `scout` | Agent | Read the ticket and find the files, tests, conventions, and past changes that bear on it. Do not modify anything. | opus | 2, then human | `scout-report.md` |
 | `plan` | Agent | Turn the ticket and scout report into a concrete ordered plan: files to change, approach, and how it will be verified. | opus | — | — |
 | `build` | Agent | Execute plan.md. On a retry, the verification report explains what failed; fix that specifically rather than reworking the approach. | sonnet | 3, then human | — |
-| `verify` | Code | make verify — exits non-zero on any failure and writes verify-report.txt | — | — | — |
+| `verify` | Code | make verify — exits non-zero on any failure and writes verify-report.txt | — | — | `verify-report.txt` |
 | `open_pr` | Code | git push, then gh pr create with the plan as the description body | — | — | — |
 | `accept` | Human | Decide whether the change is correct and wanted. Merging is irreversible enough to warrant a person. | — | — | — |
+
+Nodes with an artifact named above cannot pass their claim of success downstream without it: the run treats a missing or empty file as a failure of that node. The bar is that the artifact exists and is not empty, which catches a step that silently did nothing — not a step that writes something worthless.
 
 ## Flow
 
@@ -58,6 +61,7 @@ flowchart TD
 | `build` | always | `worktree` | `verify` |
 | `verify` | pass | `worktree` | `open_pr` |
 | `verify` | fail (loop) | `verify-report.txt` | `build` |
+| `scout` | fail (loop) | `scout-shortfall.txt` | `scout` |
 | `open_pr` | always | `pr_url` | `accept` |
 
 ## Where people are involved
@@ -83,6 +87,7 @@ Unresolved. Each of these is a hole in the design, deliberately left visible:
 - How does the workflow authenticate to the tracker and to GitHub in an unattended run?
 - When accept rejects, does the ticket return to Ready for a fresh run, or reopen the existing worktree?
 - Is `make verify` fast enough to sit inside a retry loop, or does it need a quick subset for the loop and a full run before open_pr?
+- budget.agent_calls is set to 12: three agent nodes with a build loop bounded at 3. Raise it before adding a fourth agent node, or the run will stop partway through work it could have finished.
 
 ## Testing a single node
 

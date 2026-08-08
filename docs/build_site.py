@@ -416,7 +416,7 @@ PAGE = """<!DOCTYPE html>
     <div class="wrap strip-in">
       <span class="fact"><b>MIT</b> licensed</span>
       <span class="fact"><b>Python 3.10+</b>, standard library only</span>
-      <span class="fact"><b>58 tests</b>, no network or token spend</span>
+      <span class="fact"><b>86 tests</b>, no network or token spend</span>
       <span class="fact">CI on <b>Linux and Windows</b></span>
       <span class="fact">Claude skill <b>+ standalone scripts</b></span>
     </div>
@@ -673,7 +673,7 @@ python3 skill/scripts/render_workflow.py \\
 python3 skill/scripts/scaffold_workflow.py \\
     spec.json --out ./my-workflow
 
-make test   <span class="t-dim"># 58 tests, no network</span></pre>
+make test   <span class="t-dim"># 86 tests, no network</span></pre>
         <p class="cap">Nothing here needs an API key. Designing and rendering never call a
         model.</p>
       </div>

@@ -30,7 +30,23 @@ generated from the same source.
 | `entry` | yes | `id` of the first node. |
 | `nodes` | yes | Array of node objects. |
 | `edges` | yes | Array of edge objects. |
+| `budget` | no | Ceiling on agent calls for the whole run. See below. |
 | `open_questions` | no | Things the design can't settle without the user. Surfaced in every output. |
+
+`budget` takes the shape `{"agent_calls": 12}`. `max_attempts` bounds each node on its
+own and cannot see across nodes, which leaves a hole: a producer and a checker on a loop
+edge can both honour their own ceilings and still ping-pong, spending indefinitely. Every
+individual bound is respected and the run never stops. `budget` counts across the run and
+closes it.
+
+The count includes retries, and a call is charged when it returns — whatever the outcome.
+A call that launched and then errored or timed out has already cost money, so crediting
+only successes would let a crash-looping node spend while the counter stayed flat. Two
+things are never charged: a missing agent CLI, which never launched, and a delegated park,
+which stops the process before any model runs.
+
+Exhaustion is not a failure. The run stops between nodes and hands off through the same
+recorded gate a human node uses, so someone is told what to raise to continue.
 
 `isolation` values:
 
@@ -72,6 +88,48 @@ is the whole point of the exercise — see the assignment heuristic in SKILL.md.
 | `writes` | no | all | Named payloads this node produces. |
 | `max_attempts` | no | all | Retry bound. Defaults to 1. Any node that a `fail` edge loops back into needs a real number here. |
 | `on_exhausted` | no | all | `fail`, `human`, or `escalate-model`. What happens when `max_attempts` is used up. Defaults to `fail`. |
+| `evidence` | no | all | Names the artifact that proves this node did its job. See below. |
+
+## Evidence
+
+An exit code is a claim. A node can return zero having written nothing, and every node
+after it then works on the assumption that something happened. `evidence` names the
+artifact that proves otherwise — a file in the run directory, same convention as a
+payload:
+
+```json
+{ "id": "verify", "kind": "code", "evidence": "verify-report.txt", ... }
+```
+
+Before any edge is followed, a node that reported success must have produced that file,
+non-empty. If it did not, the node **failed**: it routes down its `fail` edge, counts
+against `max_attempts`, and reaches `on_exhausted` like any other failure. There is no
+second kind of failure with its own rules.
+
+This gates *any* successful traversal, `always` edges included — not only `pass` edges.
+That distinction sounds academic and is not: the example spec has five `always` edges to
+one `pass`, so a pass-only gate would check one traversal in seven.
+
+Two deliberate limits, stated plainly so the field is not mistaken for more than it is:
+
+- **It is checked only on otherwise-successful outcomes.** A node that already failed has
+  a real reason, and burying it under a missing-artifact complaint helps nobody.
+- **The bar is existence and non-emptiness, nothing more.** That catches the silent
+  no-op — the step that reported success and produced nothing — which is the common
+  failure. It does not catch a node writing `done` to a file to satisfy the check. This
+  is a floor, not a proof.
+
+Because a missing artifact makes the node fail, a node declaring `evidence` must have a
+`fail` edge. The validator refuses the spec otherwise: the failure would have nowhere to
+go, and the run would simply stop there.
+
+## Decision records
+
+Not a field — behaviour. Every `human` node writes `<node>.decision.json` to the run
+directory when it is answered: the node id, what was presented, the verdict, the
+reasoning, and a UTC timestamp. `on_exhausted: "human"` and budget exhaustion record the
+same way, because they route through the same gate. A gate nobody can audit afterwards is
+a gesture.
 
 `on_exhausted` values:
 

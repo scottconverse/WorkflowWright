@@ -1,9 +1,9 @@
 flowchart TD
     intake["Fetch ticket, create worktree"]
-    scout("Locate relevant code and prior art<br/>opus")
+    scout("Locate relevant code and prior art<br/>opus<br/>max 2 attempts<br/>proves: scout-report.md")
     plan("Write an implementation plan<br/>opus")
     build("Implement the plan<br/>sonnet<br/>max 3 attempts")
-    verify["Tests, lint, typecheck"]
+    verify["Tests, lint, typecheck<br/>proves: verify-report.txt"]
     open_pr["Push branch and open pull request"]
     accept{{"Review and merge"}}
 
@@ -13,6 +13,7 @@ flowchart TD
     build -- "worktree" --> verify
     verify -- "pass: worktree" --> open_pr
     verify -. "fail: verify-report.txt" .-> build
+    scout -. "fail: scout-shortfall.txt" .-> scout
     open_pr -- "pr_url" --> accept
 
     classDef code fill:#dbeafe,stroke:#1d4ed8,stroke-width:1px,color:#0b2a6b;

@@ -114,8 +114,29 @@ tokens out of sight. That is the mode to use from inside an assistant such as Cl
 Code or Cowork. Routing, retry ceilings, and payloads are identical either way; only
 the model call moves.
 
+## Three ways a run refuses to lie to you
+
+- **[Evidence](docs/manual.md#proving-a-node-worked).** A node can name the artifact
+  that proves it did its job. Report success without producing it and the node has
+  failed — routed down its fail edge, counted against its retries, like any other
+  failure. An exit code is a claim; the artifact is the proof. The bar is existence and
+  non-emptiness, which catches the silent no-op and not much more, and the docs say so
+  rather than letting the word "evidence" imply a guarantee.
+- **[A run budget](docs/manual.md#the-run-budget).** `max_attempts` bounds each node
+  alone and cannot see across nodes, so a producer and a checker on a loop edge can
+  both honour their ceilings and still ping-pong forever. `budget.agent_calls` counts
+  the whole run. Retries count, failed calls count, and the tally survives the pauses
+  of delegate mode.
+- **[Decision records](docs/manual.md#human-gates-and-decision-records).** Every human
+  gate writes what was asked, what was decided, why, and when. In delegate mode a gate
+  is answerable by writing a file, which is what makes an approval reachable at all
+  without a terminal — and an answer that parses as neither yes nor no is recorded as
+  not approved.
+
 The [manual](docs/manual.md) covers all of this in depth, including
 [six things that look like bugs and are not](docs/manual.md#the-traps).
+Design decisions with lasting consequences are recorded in
+[docs/adr/](docs/adr/).
 
 ## When not to use it
 
@@ -139,7 +160,7 @@ script, or a better prompt, and the skill will tell you so.
 
 ## Tests
 
-58 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
+86 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
 
 ```sh
 python -m unittest discover -s tests

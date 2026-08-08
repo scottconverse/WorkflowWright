@@ -4,6 +4,9 @@ The reference for people the [README](../README.md) has already convinced. Organ
 for lookup, not persuasion.
 
 - [Concepts](#concepts)
+- [Proving a node worked](#proving-a-node-worked)
+- [The run budget](#the-run-budget)
+- [Human gates and decision records](#human-gates-and-decision-records)
 - [The three modes](#the-three-modes)
 - [Writing a spec by hand](#writing-a-spec-by-hand)
 - [Running a generated workflow](#running-a-generated-workflow)
@@ -32,6 +35,11 @@ schema cannot disagree. The shape in brief:
   declare `max_attempts` and `on_exhausted` (`fail`, `human`, or `escalate-model`,
   which grants one final attempt on a stronger model). The validator refuses specs
   that omit these.
+- **Evidence.** A node may name the artifact that proves it did its job. A node that
+  reports success without producing it has failed, and routes accordingly. See
+  [proving a node worked](#proving-a-node-worked).
+- **Budget.** A top-level ceiling on agent calls for the whole run, closing the gap
+  `max_attempts` cannot see across. See [the run budget](#the-run-budget).
 - **Isolation** declares where runs execute: `none`, `worktree` (one git worktree per
   run — parallel runs can't trample each other), or `sandbox` (a container or VM per
   run — survives destructive mistakes). See the schema for the trade-offs. Note that
@@ -40,6 +48,77 @@ schema cannot disagree. The shape in brief:
   creates a worktree or a container. Creating and tearing down the isolated
   environment belongs in your entry node — the bundled example spec does it in
   `intake`.
+
+## Proving a node worked
+
+An exit code is a claim. A node can return zero having written nothing, and everything
+downstream then proceeds on the assumption that it did something. `evidence` names the
+artifact that settles it:
+
+```json
+{ "id": "verify", "kind": "code", "evidence": "verify-report.txt" }
+```
+
+A node that reports success must have left that file in the run directory, non-empty,
+before any edge out of it is followed. If it did not, the node **failed** — it routes
+down its `fail` edge, spends an attempt, and reaches `on_exhausted` exactly like any
+other failure. Nothing about it is special-cased, which is the point: there is one
+kind of failure and one set of rules for handling it.
+
+It gates every successful traversal, including `always` edges. If it gated only `pass`
+edges it would barely fire — the bundled example has five `always` edges to one `pass`.
+
+**Be precise about what this buys you.** The bar is that the artifact exists and is not
+empty. That catches the silent no-op, which is the failure that actually happens: the
+step that reported success and produced nothing, whose absence is then discovered three
+nodes later or not at all. It does **not** catch a node writing the word `done` to a
+file to get past the check. If you want a real bar, put it in the checker node where it
+belongs, and use evidence to guarantee the checker itself produced a report.
+
+Because a missing artifact makes the node fail, a node with `evidence` needs a `fail`
+edge. The validator refuses the spec otherwise, on the same grounds it refuses any node
+whose failure has nowhere to go.
+
+## The run budget
+
+`max_attempts` bounds each node in isolation and cannot see across nodes. That leaves a
+gap: a producer and a checker on a loop edge can each honour their own ceiling and still
+ping-pong, spending indefinitely while every individual bound is respected and nothing
+ever stops. A top-level budget closes it:
+
+```json
+{ "budget": { "agent_calls": 12 } }
+```
+
+Retries count. A call is charged when it returns, whatever the outcome — a call that
+launched and then errored or timed out has already cost money, so crediting only
+successes would let a crash-looping node spend while the counter stayed flat. Two things
+are never charged: a missing agent CLI, which never launched, and a delegated park,
+which exits the process before any model runs.
+
+The count lives in `driver-state.json`, so it survives the pauses of delegate mode. An
+in-memory counter would reset at every park and make the budget infinite in the mode most
+likely to be watched by someone paying attention to cost.
+
+Exhaustion is not a crash. The run stops between nodes, hands off through the recorded
+gate below, and tells you what to raise.
+
+## Human gates and decision records
+
+Every `human` node writes `<node>.decision.json` when it is answered — the node id, what
+was presented, the verdict, the reasoning, and a UTC timestamp. `on_exhausted: "human"`
+and budget exhaustion record the same way, since they route through the same gate.
+
+In delegate mode a human node parks like an agent node rather than requiring a terminal:
+the question goes to `<node>.decision.md`, and you answer by writing `<node>.answer.md`
+beside it. The first line is the verdict, `yes` or `no`, and everything after is kept as
+your reasoning. **An answer that is neither is recorded as not approved** — an
+unparseable answer is exactly where a person meant something specific, and reading
+consent into it is the one wrong way to resolve the ambiguity.
+
+This is what makes an approval gate reachable at all for anyone without a terminal.
+Before it, the run parked and the only way onward was `--from`, which skips a gate
+rather than answering it.
 
 ## The three modes
 

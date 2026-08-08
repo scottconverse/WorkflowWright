@@ -3,6 +3,7 @@
   "goal": "Take an accepted ticket to a pull request that passes verification, with human judgment only at intake and acceptance",
   "trigger": "A ticket moves to Ready in the tracker",
   "isolation": "worktree",
+  "budget": { "agent_calls": 12 },
   "entry": "intake",
   "nodes": [
     {
@@ -20,7 +21,10 @@
       "model": "opus",
       "tools": ["Read", "Grep", "Glob"],
       "reads": ["ticket.json"],
-      "writes": ["scout-report.md"]
+      "writes": ["scout-report.md"],
+      "evidence": "scout-report.md",
+      "max_attempts": 2,
+      "on_exhausted": "human"
     },
     {
       "id": "plan",
@@ -49,7 +53,8 @@
       "kind": "code",
       "detail": "make verify — exits non-zero on any failure and writes verify-report.txt",
       "reads": ["worktree"],
-      "writes": ["verify-report.txt"]
+      "writes": ["verify-report.txt"],
+      "evidence": "verify-report.txt"
     },
     {
       "id": "open_pr",
@@ -74,11 +79,13 @@
     { "from": "build", "to": "verify", "when": "always", "payload": "worktree" },
     { "from": "verify", "to": "open_pr", "when": "pass", "payload": "worktree" },
     { "from": "verify", "to": "build", "when": "fail", "payload": "verify-report.txt", "loop": true },
+    { "from": "scout", "to": "scout", "when": "fail", "payload": "scout-shortfall.txt", "loop": true },
     { "from": "open_pr", "to": "accept", "when": "always", "payload": "pr_url" }
   ],
   "open_questions": [
     "How does the workflow authenticate to the tracker and to GitHub in an unattended run?",
     "When accept rejects, does the ticket return to Ready for a fresh run, or reopen the existing worktree?",
-    "Is `make verify` fast enough to sit inside a retry loop, or does it need a quick subset for the loop and a full run before open_pr?"
+    "Is `make verify` fast enough to sit inside a retry loop, or does it need a quick subset for the loop and a full run before open_pr?",
+    "budget.agent_calls is set to 12: three agent nodes with a build loop bounded at 3. Raise it before adding a fourth agent node, or the run will stop partway through work it could have finished."
   ]
 }

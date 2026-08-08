@@ -90,7 +90,10 @@ class TestGeneration(ScaffoldCase):
             capture_output=True, text=True,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("7 ['build']", proc.stdout)
+        # Both retry targets of the bundled example: build, re-entered when
+        # verify rejects, and scout, which retries itself when it produces no
+        # report. Update this if the example's shape changes.
+        self.assertIn("7 ['build', 'scout']", proc.stdout)
 
     def test_generated_files_are_utf8(self):
         """Regression: an unqualified write_text() emits the platform codepage, which
@@ -757,6 +760,49 @@ class TestEvidenceGates(ScaffoldCase):
         code, out = run_workflow(pkg, run_dir, workdir=pkg)
         self.assertEqual(code, 0, out)
         self.assertIn("shipped", (run_dir / "ship.out").read_text(encoding="utf-8"))
+
+
+class TestBackwardCompatibility(ScaffoldCase):
+    """A spec written before evidence, budget, and decision records existed must
+    behave exactly as it did then.
+
+    Every one of those fields is optional, and optional has to mean inert rather
+    than merely defaulted: a spec that declares none of them should produce a
+    run whose observable behaviour and run directory are indistinguishable from
+    the release before they were added.
+    """
+
+    def test_a_spec_with_no_new_fields_runs_and_leaves_no_new_artifacts(self):
+        spec = valid_spec()
+        self.assertNotIn("budget", spec)
+        for node in spec["nodes"]:
+            self.assertNotIn("evidence", node)
+
+        pkg = self.build(spec, steps={"check": "exit 0\n"})
+        run_dir = self.dir / "run"
+        stub = make_stub_claude(self.dir / "stub")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, agent_cli=stub)
+
+        # The fixture ends at a human gate with nobody watching, which parked at
+        # 75 before this release and must still park at 75 now.
+        self.assertEqual(code, 75, out)
+        self.assertIn("stops here rather than deciding for you", out)
+
+        produced = sorted(p.name for p in run_dir.iterdir())
+        for name in produced:
+            self.assertFalse(
+                name.endswith((".decision.json", ".decision.md", ".answer.md",
+                               ".prompt.md", ".result.md")),
+                f"{name} is machinery this spec never asked for",
+            )
+        self.assertNotIn("budget", out.lower())
+        self.assertNotIn("evidence", out.lower())
+
+    def test_the_generated_driver_declares_no_ceiling(self):
+        pkg = self.build(valid_spec(), steps={"check": "exit 0\n"})
+        source = (pkg / "workflow.py").read_text(encoding="utf-8")
+        self.assertIn("BUDGET_AGENT_CALLS = None", source,
+                      "absent budget must compile to no ceiling, not to a default")
 
 
 class TestOperatorAffordances(ScaffoldCase):
