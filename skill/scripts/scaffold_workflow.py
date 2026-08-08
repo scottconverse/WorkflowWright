@@ -433,6 +433,26 @@ class Context:
         return template.strip()
 
 
+def check_evidence(node, ctx: Context):
+    """Return what is missing, or None when the node left proof it worked.
+
+    The bar is that the named artifact exists and is not empty. That catches
+    the silent no-op — the node that reported success and produced nothing —
+    which is the common failure. It does not catch a node that writes a token
+    file to satisfy the check, and it is not meant to: the point is to stop a
+    claim from travelling downstream unaccompanied, not to grade the artifact.
+    """
+    name = node.get("evidence")
+    if not name:
+        return None
+    path = ctx.run_dir / name
+    if not path.exists():
+        return f"declared evidence '{name}' but produced no such file ({path})"
+    if not path.read_text(encoding="utf-8", errors="replace").strip():
+        return f"declared evidence '{name}' but the file is empty"
+    return None
+
+
 def log(message: str) -> None:
     stamp = datetime.now().strftime("%H:%M:%S")
     print(f"[{stamp}] {message}", flush=True)
@@ -617,6 +637,17 @@ def drive(ctx: Context, start: str) -> int:
             spend += 1
         ctx.write(f"{current}.out", result.output)
         ctx.feedback = None
+
+        # Only an otherwise-successful node is asked for proof. One that already
+        # failed has a real reason, and replacing it with a missing-artifact
+        # complaint would bury the useful one. Checked before any edge is
+        # followed, so it gates `always` traversals as much as `pass` ones —
+        # gating only `pass` would leave most real workflows unchecked.
+        if result.ok:
+            shortfall = check_evidence(node, ctx)
+            if shortfall:
+                log(f"  {current}: {shortfall}")
+                result = Result(False, f"{current} {shortfall}", result.session_id)
 
         if result.ok:
             edge = next_node(current, ("always", "pass"))

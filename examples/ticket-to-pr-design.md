@@ -38,15 +38,15 @@ flowchart TD
 
 ## Nodes
 
-| Node | Who | What | Model | Retries |
-|---|---|---|---|---|
-| `intake` | Code | GET the ticket from the tracker API, write ticket.json, git worktree add a branch named for the ticket id | — | — |
-| `scout` | Agent | Read the ticket and find the files, tests, conventions, and past changes that bear on it. Do not modify anything. | opus | — |
-| `plan` | Agent | Turn the ticket and scout report into a concrete ordered plan: files to change, approach, and how it will be verified. | opus | — |
-| `build` | Agent | Execute plan.md. On a retry, the verification report explains what failed; fix that specifically rather than reworking the approach. | sonnet | 3, then human |
-| `verify` | Code | make verify — exits non-zero on any failure and writes verify-report.txt | — | — |
-| `open_pr` | Code | git push, then gh pr create with the plan as the description body | — | — |
-| `accept` | Human | Decide whether the change is correct and wanted. Merging is irreversible enough to warrant a person. | — | — |
+| Node | Who | What | Model | Retries | Proves it worked |
+|---|---|---|---|---|---|
+| `intake` | Code | GET the ticket from the tracker API, write ticket.json, git worktree add a branch named for the ticket id | — | — | — |
+| `scout` | Agent | Read the ticket and find the files, tests, conventions, and past changes that bear on it. Do not modify anything. | opus | — | — |
+| `plan` | Agent | Turn the ticket and scout report into a concrete ordered plan: files to change, approach, and how it will be verified. | opus | — | — |
+| `build` | Agent | Execute plan.md. On a retry, the verification report explains what failed; fix that specifically rather than reworking the approach. | sonnet | 3, then human | — |
+| `verify` | Code | make verify — exits non-zero on any failure and writes verify-report.txt | — | — | — |
+| `open_pr` | Code | git push, then gh pr create with the plan as the description body | — | — | — |
+| `accept` | Human | Decide whether the change is correct and wanted. Merging is irreversible enough to warrant a person. | — | — | — |
 
 ## Flow
 

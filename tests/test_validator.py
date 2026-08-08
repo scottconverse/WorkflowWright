@@ -111,5 +111,50 @@ class TestNamedPayloads(unittest.TestCase):
         self.assertTrue(has(p, "payload"), p)
 
 
+class TestEvidenceDeclarations(unittest.TestCase):
+    def test_evidence_without_a_failure_path_is_structural(self):
+        """Evidence turns a missing artifact into a node failure. A node with
+        nowhere to route a failure would simply stop the run there, which is
+        the defect this validator already refuses in every other form."""
+        spec = valid_spec()
+        # `make` reaches `check` by an `always` edge and has no fail edge.
+        for node in spec["nodes"]:
+            if node["id"] == "make":
+                node["evidence"] = "draft.md"
+        problems = rw.validate(spec)
+        self.assertTrue(any("evidence" in p and "make" in p for p in problems), problems)
+
+    def test_evidence_with_a_failure_path_is_fine(self):
+        spec = valid_spec()
+        for node in spec["nodes"]:
+            if node["id"] == "check":
+                node["evidence"] = "report.txt"
+        self.assertEqual(rw.validate(spec), [])
+
+    def test_evidence_must_name_an_artifact(self):
+        spec = valid_spec()
+        for node in spec["nodes"]:
+            if node["id"] == "check":
+                node["evidence"] = ["a", "b"]
+        self.assertTrue(any("evidence" in p for p in rw.validate(spec)))
+
+
+class TestBudgetField(unittest.TestCase):
+    def test_budget_must_be_a_positive_whole_number(self):
+        spec = valid_spec()
+        spec["budget"] = {"agent_calls": 0}
+        self.assertTrue(any("agent_calls" in p for p in rw.validate(spec)))
+
+    def test_a_real_budget_validates(self):
+        spec = valid_spec()
+        spec["budget"] = {"agent_calls": 5}
+        self.assertEqual(rw.validate(spec), [])
+
+    def test_budget_must_be_an_object(self):
+        spec = valid_spec()
+        spec["budget"] = 20
+        self.assertTrue(any("budget" in p for p in rw.validate(spec)))
+
+
 if __name__ == "__main__":
     unittest.main()

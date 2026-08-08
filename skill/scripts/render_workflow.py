@@ -68,6 +68,24 @@ def validate(spec):
                 "Only agent nodes run a model."
             )
 
+    fails_from = {e.get("from") for e in spec["edges"] if e.get("when") == "fail"}
+    for node in spec["nodes"]:
+        evidence = node.get("evidence")
+        if evidence is None:
+            continue
+        if not isinstance(evidence, str) or not evidence.strip():
+            problems.append(
+                f"Node '{node['id']}' has evidence {evidence!r}; it must name a "
+                "single artifact, e.g. \"verify-report.txt\"."
+            )
+            continue
+        if node["id"] not in fails_from:
+            problems.append(
+                f"Node '{node['id']}' declares evidence but has no fail edge. A "
+                "missing artifact makes the node fail, and that failure would "
+                "have nowhere to go."
+            )
+
     budget = spec.get("budget")
     if budget is not None:
         if not isinstance(budget, dict):
@@ -179,6 +197,8 @@ def build_mermaid(spec):
             label += f"<br/>{mm_escape(node['model'])}"
         if node.get("max_attempts", 1) > 1:
             label += f"<br/>max {node['max_attempts']} attempts"
+        if node.get("evidence"):
+            label += f"<br/>proves: {mm_escape(node['evidence'])}"
         lines.append(
             "    " + shapes[kind].format(id=mm_id(node["id"]), label=label)
         )
@@ -248,15 +268,25 @@ def build_markdown(spec, mermaid, problems):
     w("```\n")
 
     w("## Nodes\n")
-    w("| Node | Who | What | Model | Retries |")
-    w("|---|---|---|---|---|")
+    w("| Node | Who | What | Model | Retries | Proves it worked |")
+    w("|---|---|---|---|---|---|")
     for n in nodes:
         model = n.get("model") or ("—" if n.get("kind") != "agent" else "default")
         attempts = n.get("max_attempts", 1)
         retry = "—" if attempts <= 1 else f"{attempts}, then {n.get('on_exhausted', 'fail')}"
         detail = str(n.get("detail", "")).replace("|", "\\|")
-        w(f"| `{n['id']}` | {KIND_LABEL.get(n.get('kind'), n.get('kind', '?'))} | {detail} | {model} | {retry} |")
+        evidence = f"`{n['evidence']}`" if n.get("evidence") else "—"
+        w(f"| `{n['id']}` | {KIND_LABEL.get(n.get('kind'), n.get('kind', '?'))} | {detail} | {model} | {retry} | {evidence} |")
     w("")
+
+    if any(n.get("evidence") for n in nodes):
+        w(
+            "Nodes with an artifact named above cannot pass their claim of success "
+            "downstream without it: the run treats a missing or empty file as a "
+            "failure of that node. The bar is that the artifact exists and is not "
+            "empty, which catches a step that silently did nothing — not a step "
+            "that writes something worthless.\n"
+        )
 
     w("## Flow\n")
     w("| From | Condition | Carries | To |")

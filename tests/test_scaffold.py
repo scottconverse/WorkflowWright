@@ -651,6 +651,114 @@ class TestRunBudget(ScaffoldCase):
         self.assertTrue(records, "a budget stop must hand off with context, not vanish")
 
 
+class TestEvidenceGates(ScaffoldCase):
+    """A node that claims success must leave something behind.
+
+    The floor is deliberately low — the artifact exists and is not empty — and
+    it is worth being precise about what that buys. It catches the silent
+    no-op: the node that reported success and produced nothing. It does not
+    catch a node that writes a token file to satisfy the check. That is a real
+    limit, not a defect to paper over.
+    """
+
+    def ev_spec(self, evidence="report.txt", with_fail_edge=True):
+        """work has BOTH an always edge and a fail edge, so the test can show
+        that evidence gates the always traversal too, not only a pass edge."""
+        spec = {
+            "name": "evidenced", "goal": "exercise evidence", "trigger": "manual",
+            "isolation": "none", "entry": "work",
+            "nodes": [
+                {"id": "work", "label": "Do the work", "kind": "code",
+                 "detail": "produces a report", "max_attempts": 2,
+                 "on_exhausted": "fail"},
+                {"id": "ship", "label": "Ship", "kind": "code", "detail": "final"},
+            ],
+            "edges": [
+                {"from": "work", "to": "ship", "when": "always", "payload": "report.txt"},
+            ],
+            "open_questions": [],
+        }
+        if evidence:
+            spec["nodes"][0]["evidence"] = evidence
+        if with_fail_edge:
+            spec["edges"].append({"from": "work", "to": "work", "when": "fail",
+                                  "payload": "shortfall.txt", "loop": True})
+        return spec
+
+    def test_evidence_present_lets_the_run_continue(self):
+        pkg = self.build(self.ev_spec(), steps={
+            "work": 'echo "the findings" > "$1/report.txt" 2>/dev/null || true\n'
+                    'echo done\n',
+            "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "report.txt").write_text("the findings", encoding="utf-8")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg)
+        self.assertEqual(code, 0, out)
+        self.assertIn("shipped", (run_dir / "ship.out").read_text(encoding="utf-8"))
+
+    def test_missing_evidence_fails_a_node_that_reported_success(self):
+        """The whole point: exit 0 is a claim, the artifact is the proof."""
+        pkg = self.build(self.ev_spec(), steps={
+            "work": "echo I did it\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        code, out = run_workflow(pkg, run_dir, workdir=pkg)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("report.txt", out, "the message must name the missing artifact")
+        self.assertFalse((run_dir / "ship.out").exists(),
+                         "a node that proved nothing must not hand work downstream")
+
+    def test_evidence_gates_the_always_edge_not_only_a_pass_edge(self):
+        """work's success edge is `always`. Gating only `pass` edges would let
+        it through untouched — and on the project's own example spec five of
+        seven edges are `always`, so a pass-only gate would check almost
+        nothing."""
+        pkg = self.build(self.ev_spec(), steps={
+            "work": "echo I did it\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        code, out = run_workflow(pkg, run_dir, workdir=pkg)
+        self.assertNotIn("shipped", out)
+        self.assertIn("giving up after 2", out, "it should have retried, then stopped")
+
+    def test_empty_evidence_counts_as_missing(self):
+        pkg = self.build(self.ev_spec(), steps={
+            "work": "echo I did it\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "report.txt").write_text("   \n\n", encoding="utf-8")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("empty", out.lower())
+
+    def test_evidence_failure_consumes_an_attempt(self):
+        """It is an ordinary failure, so it flows through the ordinary retry
+        accounting rather than inventing a second kind of failure."""
+        pkg = self.build(self.ev_spec(), steps={
+            "work": "echo I did it\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        code, out = run_workflow(pkg, run_dir, workdir=pkg)
+        self.assertEqual(out.count("work [code]"), 2, f"max_attempts=2\n{out}")
+
+    def test_an_already_failing_node_is_not_also_blamed_for_evidence(self):
+        """Checked only on otherwise-successful outcomes: a node that already
+        failed has a real reason, and replacing it with a missing-artifact
+        complaint would bury the useful one."""
+        pkg = self.build(self.ev_spec(), steps={
+            "work": 'echo "the real reason"; exit 1\n', "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        code, out = run_workflow(pkg, run_dir, workdir=pkg)
+        self.assertIn("the real reason", out)
+        self.assertNotIn("declared evidence", out)
+
+    def test_no_evidence_field_changes_nothing(self):
+        pkg = self.build(self.ev_spec(evidence=None), steps={
+            "work": "echo I did it\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        code, out = run_workflow(pkg, run_dir, workdir=pkg)
+        self.assertEqual(code, 0, out)
+        self.assertIn("shipped", (run_dir / "ship.out").read_text(encoding="utf-8"))
+
+
 class TestOperatorAffordances(ScaffoldCase):
     def test_only_runs_a_single_node(self):
         """Payloads are files precisely so one node can be rerun against a fixed input."""
