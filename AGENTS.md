@@ -7,6 +7,41 @@ is the entry point for them.
 three modes — design, critique, and scaffold — and the reference material it points to
 in `skill/references/`. Nothing in it is Claude-specific.
 
+## Installing
+
+Codex and Antigravity both read skills as a directory containing `SKILL.md` with
+`name` and `description` frontmatter — the same shape `skill/` already has. Installing
+is a copy. There is no adapter and no conversion step:
+
+```sh
+git clone https://github.com/scottconverse/WorkflowWright.git
+
+# Codex
+cp -r WorkflowWright/skill ~/.codex/skills/workflowwright
+
+# Antigravity (machine-wide; use .agents/skills/ in a project instead)
+cp -r WorkflowWright/skill ~/.gemini/config/skills/workflowwright
+```
+
+On Windows those are `%USERPROFILE%\.codex\skills\workflowwright` and
+`%USERPROFILE%\.gemini\config\skills\workflowwright`. Delete the directory to
+uninstall.
+
+Both were verified by installing to those paths and running the scripts from them.
+Antigravity's own customization guide documents the layout as
+`skills/<name>/SKILL.md` plus optional `scripts/`, `references/`, `examples/`, and
+`resources/`; `skill/` satisfies it as-is, and carries an extra `assets/` directory
+that the host simply ignores.
+
+Antigravity also loads a project-local `.agents/skills/` ahead of the machine-wide
+directory, so a team can check the skill into a repository instead.
+
+## Installing anywhere else
+
+If the host has a skills directory, the same copy works. If it does not, point the
+agent at `skill/SKILL.md` directly — it is ordinary markdown with no host-specific
+machinery in it.
+
 ## What works anywhere
 
 The two scripts are Python 3.10+ using only the standard library. No install, no
@@ -35,8 +70,10 @@ budget are enforced by the driver either way; only the model call moves.
 
 ## What does not work outside Claude Code
 
-**Automatic triggering.** The `description` in `SKILL.md`'s frontmatter is written for
-Claude's skill-selection. Elsewhere, point your agent at `SKILL.md` explicitly.
+**Nothing about triggering, if the host has a skills directory.** The frontmatter
+`description` is written for skill-selection and Codex uses the same convention, so it
+triggers on natural phrasing there too. Only a host with no skills mechanism at all
+needs you to name the file.
 
 **Unattended subprocess mode.** Without `--delegate`, the runner shells out to an agent
 CLI using Claude's flag vocabulary (`-p`, `--output-format json`, `--permission-mode`,

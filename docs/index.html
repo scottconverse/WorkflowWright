@@ -596,7 +596,7 @@ Write the answer to: run/scout.result.md
 
   <section id="start" class="wrap">
     <p class="eyebrow">Install</p>
-    <h2>Two ways in, depending on which Claude you use</h2>
+    <h2>Three ways in, depending on where you work</h2>
     <div class="prose">
       <p><strong>Do not use GitHub's green Code button.</strong> That downloads the
       source tree, where <code>SKILL.md</code> sits two directories deep, and the
@@ -619,6 +619,14 @@ Settings → Skills → Upload skill
         marketplace, so they take the packaged archive.
         <a href="https://github.com/scottconverse/WorkflowWright/releases/latest/download/workflowwright.zip"><b>Download
         workflowwright.zip</b></a> · <a href="https://github.com/scottconverse/WorkflowWright/releases/latest">all releases</a></p>
+        <pre class="plain"><span class="t-dim"># Codex and Antigravity — same format, a copy</span>
+cp -r skill ~/.codex/skills/workflowwright
+cp -r skill ~/.gemini/config/skills/workflowwright</pre>
+        <p class="cap"><b>Other hosts.</b> Both read a skill as a directory with
+        <code>SKILL.md</code> and frontmatter, which is the shape this already has — no
+        adapter, no conversion. Verified by installing to those paths and running the
+        scripts from them. <a href="https://github.com/scottconverse/WorkflowWright/blob/main/AGENTS.md">AGENTS.md</a> covers
+        the rest.</p>
         <p class="cap">Then just describe the problem — "every time a bug comes in I read
         the ticket, write a fix, run the tests, and open a PR; can we automate that?" The
         skill triggers on natural phrasing, so you never name it.

@@ -73,9 +73,15 @@ then **Settings → Skills → Upload skill**. Remove it in the same place.
 Either way, you never name the skill — describe the problem and it triggers on the
 phrasing.
 
-Not using Claude Code? The scripts are stdlib Python and run anywhere, and
-`workflow.py --delegate` drives a workflow from any agent host — see
-[AGENTS.md](AGENTS.md), which is honest about what does and does not carry over.
+**Codex and Antigravity** read the same `SKILL.md` format, so both are a copy:
+
+```sh
+git clone https://github.com/scottconverse/WorkflowWright.git
+cp -r WorkflowWright/skill ~/.codex/skills/workflowwright          # Codex
+cp -r WorkflowWright/skill ~/.gemini/config/skills/workflowwright  # Antigravity
+```
+
+See [AGENTS.md](AGENTS.md) for other hosts and for what does and does not carry over.
 
 Working on the skill itself, or using the desktop or web client instead? Those read a
 different copy — see

@@ -54,6 +54,27 @@ To remove it:
 Updates come from the marketplace: `/plugin marketplace update` refreshes the catalog,
 and the plugin's `version` field decides whether you are offered a new copy.
 
+### Codex and Antigravity: copy it into the skills directory
+
+Both read a skill as a directory containing `SKILL.md` with `name` and `description`
+frontmatter — the shape `skill/` already has — so installing is a copy with no adapter
+and no conversion:
+
+```sh
+git clone https://github.com/scottconverse/WorkflowWright.git
+cp -r WorkflowWright/skill ~/.codex/skills/workflowwright          # Codex
+cp -r WorkflowWright/skill ~/.gemini/config/skills/workflowwright  # Antigravity
+```
+
+On Windows those are `%USERPROFILE%\.codex\skills\workflowwright` and
+`%USERPROFILE%\.gemini\config\skills\workflowwright`. Delete the directory to
+uninstall. It triggers on natural phrasing in both, because the frontmatter
+description that drives selection is the same file.
+
+Antigravity also checks a project-local `.agents/skills/` first, which takes precedence
+over the machine-wide copy — useful for pinning a version to one repository or sharing
+it with a team through version control.
+
 ### Claude desktop or web: upload the release archive
 
 These clients read your claude.ai account rather than a marketplace, so they take a
