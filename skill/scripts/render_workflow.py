@@ -142,10 +142,17 @@ def validate(spec):
     if len(terminal) == 0:
         problems.append("No terminal node — every path loops forever.")
 
-    # Any node targeted by a fail edge is a retry target and needs a bound.
+    # Any node targeted by a fail edge is a retry target and needs a bound —
+    # except a human one. The rule exists because unbounded retries against a
+    # paid API cost real money unattended, and a human node cannot incur that:
+    # every entry costs a person's attention and halts the run until they act.
+    # Requiring a ceiling there forces a meaningless number onto exactly the
+    # escalation paths this design wants to encourage.
     for edge in spec["edges"]:
         if edge.get("when") == "fail" and edge.get("to") in nodes:
             target = nodes[edge["to"]]
+            if target.get("kind") == "human":
+                continue
             if not target.get("max_attempts") or target["max_attempts"] < 1:
                 problems.append(
                     f"Node '{target['id']}' is the target of a retry edge but has no "

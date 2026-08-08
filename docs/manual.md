@@ -124,10 +124,12 @@ schema cannot disagree. The shape in brief:
   Every edge names a `payload` — the artifact that actually travels. An edge that
   can't name its payload is carrying an assumption, and it breaks the first time a
   node is retried or rerun in isolation.
-- **Retry bounds.** Any node that a `fail` edge re-enters is a retry target and must
-  declare `max_attempts` and `on_exhausted` (`fail`, `human`, or `escalate-model`,
-  which grants one final attempt on a stronger model). The validator refuses specs
-  that omit these.
+- **Retry bounds.** A `code` or `agent` node that a `fail` edge targets must declare
+  `max_attempts` and `on_exhausted` (`fail`, `human`, or `escalate-model`, which
+  grants one final attempt on a stronger model). The validator refuses specs that omit
+  these. A `human` node is exempt — reaching one costs a person's attention and stops
+  the run until they act, so it cannot run away unattended, which is what the bound
+  guards against. Route a failure nobody should auto-fix straight to a person.
 - **Evidence.** A node may name the artifact that proves it did its job. A node that
   reports success without producing it has failed, and routes accordingly. See
   [proving a node worked](#proving-a-node-worked).

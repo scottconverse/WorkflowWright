@@ -64,6 +64,10 @@ And to remove it:
 /plugin uninstall workflowwright
 ```
 
+Not using Claude Code? The scripts are stdlib Python and run anywhere, and
+`workflow.py --delegate` drives a workflow from any agent host — see
+[AGENTS.md](AGENTS.md), which is honest about what does and does not carry over.
+
 Working on the skill itself, or using the desktop or web client instead? Those read a
 different copy — see
 [installing and updating](docs/manual.md#installing-and-updating), which covers all
@@ -183,7 +187,7 @@ script, or a better prompt, and the skill will tell you so.
 
 ## Tests
 
-86 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
+88 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
 
 ```sh
 python -m unittest discover -s tests

@@ -86,7 +86,7 @@ is the whole point of the exercise — see the assignment heuristic in SKILL.md.
 | `tools` | no | agent | Allowed tool list, e.g. `["Read","Grep","Glob"]`. Narrow tools on read-only nodes is a real safety and cost win. |
 | `reads` | no | all | Named payloads this node consumes. |
 | `writes` | no | all | Named payloads this node produces. |
-| `max_attempts` | no | all | Retry bound. Defaults to 1. Any node that a `fail` edge loops back into needs a real number here. |
+| `max_attempts` | no | all | Retry bound. Defaults to 1. Any `code` or `agent` node that a `fail` edge targets needs a real number here. A `human` node does not: reaching one costs a person's attention and halts the run until they act, so it cannot run away unattended, and the bound exists to stop unattended spend. That makes a human node the natural target for a forward escalation edge. |
 | `on_exhausted` | no | all | `fail`, `human`, or `escalate-model`. What happens when `max_attempts` is used up. Defaults to `fail`. |
 | `evidence` | no | all | Names the artifact that proves this node did its job. See below. |
 

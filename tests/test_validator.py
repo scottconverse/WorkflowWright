@@ -111,6 +111,50 @@ class TestNamedPayloads(unittest.TestCase):
         self.assertTrue(has(p, "payload"), p)
 
 
+class TestHumanNodesNeedNoBound(unittest.TestCase):
+    """A human node reached by a failure is an escalation, not a retry.
+
+    The bound exists because unbounded retries against a paid API cost real
+    money unattended. A human node cannot incur that: every entry costs a
+    person's attention and stops the run until they act. Requiring a ceiling
+    there forces a meaningless field onto exactly the escalation paths the
+    design wants to encourage.
+    """
+
+    def escalation_spec(self):
+        """check routes its failure forward to a person, who is the last word."""
+        return {
+            "name": "escalating", "goal": "escalate on failure", "trigger": "manual",
+            "isolation": "none", "entry": "make",
+            "nodes": [
+                {"id": "make", "label": "Make", "kind": "agent", "detail": "produce",
+                 "model": "sonnet"},
+                {"id": "check", "label": "Check", "kind": "code", "detail": "verify"},
+                {"id": "ship", "label": "Ship", "kind": "code", "detail": "final"},
+                {"id": "escalate", "label": "Ask a person", "kind": "human",
+                 "detail": "Decide what to do about a failure nobody should auto-fix."},
+            ],
+            "edges": [
+                {"from": "make", "to": "check", "when": "always", "payload": "draft"},
+                {"from": "check", "to": "ship", "when": "pass", "payload": "draft"},
+                {"from": "check", "to": "escalate", "when": "fail", "payload": "why.txt"},
+            ],
+            "open_questions": [],
+        }
+
+    def test_a_human_escalation_target_needs_no_max_attempts(self):
+        spec = self.escalation_spec()
+        self.assertNotIn("max_attempts", spec["nodes"][3])
+        self.assertEqual(rw.validate(spec), [])
+
+    def test_an_agent_escalation_target_still_needs_one(self):
+        """The exemption is about who pays, not about direction of travel."""
+        spec = self.escalation_spec()
+        spec["nodes"][3] = {"id": "escalate", "label": "Retry harder", "kind": "agent",
+                            "detail": "another go", "model": "opus"}
+        self.assertTrue(any("max_attempts" in p for p in rw.validate(spec)))
+
+
 class TestEvidenceDeclarations(unittest.TestCase):
     def test_evidence_without_a_failure_path_is_structural(self):
         """Evidence turns a missing artifact into a node failure. A node with

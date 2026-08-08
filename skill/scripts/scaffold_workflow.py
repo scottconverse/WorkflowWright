@@ -497,8 +497,11 @@ ESCALATION_MODEL = "opus"
 
 # A bound only means something for nodes a failure edge loops back into — those are
 # the ones that can be re-entered indefinitely. A checker that fails is doing its job,
-# not consuming a retry of its own.
-RETRY_TARGETS = {e["to"] for e in EDGES if e.get("when") == "fail"}
+# not consuming a retry of its own. Human nodes are excluded for the same reason the
+# validator does not demand a bound on them: reaching one costs a person's attention
+# and stops the run until they act, so it cannot run away unattended.
+RETRY_TARGETS = {e["to"] for e in EDGES
+                 if e.get("when") == "fail" and NODES[e["to"]].get("kind") != "human"}
 
 
 def give_up(node_id: str, ctx: Context, limit: int) -> int:
