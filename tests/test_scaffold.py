@@ -536,6 +536,121 @@ class TestHumanGateDelegation(ScaffoldCase):
         self.assertFalse((run_dir / "approve.decision.json").exists())
 
 
+class TestRunBudget(ScaffoldCase):
+    """A ceiling on agent calls for the whole run, not per node.
+
+    max_attempts bounds each node independently, which leaves a real hole: two
+    nodes on a loop edge can honour their own ceilings and still ping-pong,
+    spending indefinitely. The budget closes it by counting across the run.
+    """
+
+    def budget_spec(self, agent_calls=None, max_attempts=5, gen_retries_itself=False):
+        spec = {
+            "name": "budgeted", "goal": "exercise the budget", "trigger": "manual",
+            "isolation": "none", "entry": "gen",
+            "nodes": [
+                {"id": "gen", "label": "Generate", "kind": "agent", "detail": "make it",
+                 "model": "sonnet", "reads": ["brief.md"], "writes": ["draft.txt"],
+                 "max_attempts": max_attempts, "on_exhausted": "fail"},
+                {"id": "judge", "label": "Judge", "kind": "code", "detail": "checks"},
+                {"id": "ship", "label": "Ship", "kind": "code", "detail": "final"},
+            ],
+            "edges": [
+                {"from": "gen", "to": "judge", "when": "always", "payload": "draft.txt"},
+                {"from": "judge", "to": "ship", "when": "pass", "payload": "draft.txt"},
+                {"from": "judge", "to": "gen", "when": "fail", "payload": "verdict.txt",
+                 "loop": True},
+            ],
+            "open_questions": [],
+        }
+        if gen_retries_itself:
+            # gen's own failure loops back into gen, so a failing agent call is
+            # retried rather than dead-ending: the shape needed to observe that
+            # failed calls are charged.
+            spec["edges"].append({"from": "gen", "to": "gen", "when": "fail",
+                                  "payload": "error.txt", "loop": True})
+        if agent_calls is not None:
+            spec["budget"] = {"agent_calls": agent_calls}
+        return spec
+
+    def prep(self, spec, judge="exit 0\n"):
+        pkg = self.build(spec, steps={"judge": judge, "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
+        return pkg, run_dir
+
+    def test_a_failing_call_still_spends_budget(self):
+        """The refinement that matters. Counting only successful calls lets a
+        crash-looping node spend real money while the counter stays flat, which
+        is the exact runaway the budget exists to stop."""
+        pkg, run_dir = self.prep(self.budget_spec(
+            agent_calls=2, max_attempts=5, gen_retries_itself=True))
+        stub = make_stub_claude(self.dir / "stub", fail_until=99)
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, agent_cli=stub)
+        calls = (self.dir / "stub" / "calls.log").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(calls), 2, f"budget of 2 must stop after 2 launches\n{out}")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("budget", out.lower())
+
+    def test_budget_stops_before_launching_the_call_that_would_exceed_it(self):
+        pkg, run_dir = self.prep(
+            self.budget_spec(agent_calls=1, max_attempts=5),
+            judge='echo "REJECTED"; exit 1\n')
+        stub = make_stub_claude(self.dir / "stub")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, agent_cli=stub)
+        calls = (self.dir / "stub" / "calls.log").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(calls), 1, out)
+        self.assertEqual(code, 75, f"exhaustion is a handoff, not a crash\n{out}")
+
+    def test_a_call_that_never_launched_is_free(self):
+        """CLI missing means nothing ran and nothing was spent. If it counted,
+        a bad PATH would drain the budget and report exhaustion instead of the
+        precise cause, trading a real diagnosis for a misleading one."""
+        pkg, run_dir = self.prep(self.budget_spec(agent_calls=2, max_attempts=3))
+        code, out = run_workflow(pkg, run_dir, workdir=pkg,
+                                 agent_cli="definitely-not-a-real-cli-xyz")
+        self.assertIn("not on PATH", out)
+        self.assertNotIn("budget", out.lower())
+
+    def test_spend_survives_a_delegate_pause(self):
+        """Every delegated pause is a fresh process. An in-memory counter would
+        reset at each one, making any budget infinite in the mode most likely
+        to be driven by a person watching the cost."""
+        pkg, run_dir = self.prep(
+            self.budget_spec(agent_calls=2, max_attempts=5),
+            judge='echo "REJECTED"; exit 1\n')
+        for i in range(2):
+            code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+            self.assertEqual(code, 76, out)
+            (run_dir / "gen.result.md").write_text(f"draft {i}", encoding="utf-8")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        self.assertEqual(code, 75, f"third attempt must hit the budget\n{out}")
+        self.assertIn("budget", out.lower())
+
+    def test_no_budget_field_means_no_ceiling(self):
+        """Optional stays optional: a spec without the field behaves exactly as
+        it did before the field existed."""
+        pkg, run_dir = self.prep(
+            self.budget_spec(agent_calls=None, max_attempts=3),
+            judge='echo "REJECTED"; exit 1\n')
+        stub = make_stub_claude(self.dir / "stub")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, agent_cli=stub)
+        calls = (self.dir / "stub" / "calls.log").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(calls), 3, "max_attempts alone should govern")
+        self.assertNotIn("budget", out.lower())
+
+    def test_exhaustion_records_the_decision(self):
+        pkg, run_dir = self.prep(
+            self.budget_spec(agent_calls=1, max_attempts=5),
+            judge='echo "REJECTED"; exit 1\n')
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        (run_dir / "gen.result.md").write_text("draft", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        records = list(run_dir.glob("*.decision.md"))
+        self.assertTrue(records, "a budget stop must hand off with context, not vanish")
+
+
 class TestOperatorAffordances(ScaffoldCase):
     def test_only_runs_a_single_node(self):
         """Payloads are files precisely so one node can be rerun against a fixed input."""

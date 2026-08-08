@@ -63,6 +63,10 @@ class Result:
     ok: bool
     output: str = ""
     session_id: str | None = None
+    # False only when no model call actually happened, which is what separates
+    # "the CLI is missing" from "the call ran and failed". The budget charges
+    # for the second and not the first.
+    launched: bool = True
 
 
 AGENT_TIMEOUT = int(os.environ.get("WORKFLOW_AGENT_TIMEOUT", "1800"))
@@ -192,7 +196,8 @@ def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None,
     except subprocess.TimeoutExpired:
         return Result(False, f"agent exceeded {AGENT_TIMEOUT}s timeout", session_id)
     except FileNotFoundError:
-        return Result(False, f"the `{AGENT_CLI[0]}` CLI is not on PATH", session_id)
+        return Result(False, f"the `{AGENT_CLI[0]}` CLI is not on PATH", session_id,
+                      launched=False)
 
     if not proc.stdout.strip():
         return Result(False, proc.stderr.strip() or "agent produced no output", session_id)
@@ -380,6 +385,11 @@ from runner import Result, ask_human, delegating, run_agent, run_step
 HERE = Path(__file__).parent
 ENTRY = {entry!r}
 
+# Ceiling on agent calls for the whole run, or None for no ceiling. Per-node
+# max_attempts cannot see across nodes, so two nodes on a loop edge can each
+# honour their own bound and still ping-pong indefinitely. This counts the run.
+BUDGET_AGENT_CALLS = {budget!r}
+
 # --- generated from spec.json ------------------------------------------------
 NODES = {nodes}
 
@@ -489,7 +499,8 @@ def give_up(node_id: str, ctx: Context, limit: int) -> int:
 STATE_FILE = "driver-state.json"
 
 
-def save_state(ctx: Context, current: str, attempts: dict[str, int]) -> None:
+def save_state(ctx: Context, current: str, attempts: dict[str, int],
+               spend: int = 0) -> None:
     """Record where the driver is, so a pause can be resumed exactly.
 
     Only delegate mode pauses mid-run, but the state is cheap and writing it
@@ -498,7 +509,8 @@ def save_state(ctx: Context, current: str, attempts: dict[str, int]) -> None:
     """
     (ctx.run_dir / STATE_FILE).write_text(
         json.dumps(
-            {"current": current, "attempts": dict(attempts), "feedback": ctx.feedback},
+            {"current": current, "attempts": dict(attempts),
+             "feedback": ctx.feedback, "agent_calls_spent": spend},
             indent=2,
         ),
         encoding="utf-8",
@@ -506,7 +518,7 @@ def save_state(ctx: Context, current: str, attempts: dict[str, int]) -> None:
 
 
 def load_state(ctx: Context):
-    """Return (current, attempts, feedback) from a paused run, or None."""
+    """Return (current, attempts, feedback, spend) from a paused run, or None."""
     path = ctx.run_dir / STATE_FILE
     if not path.exists():
         return None
@@ -516,16 +528,36 @@ def load_state(ctx: Context):
         return None
     if not data.get("current"):
         return None
-    return data["current"], defaultdict(int, data.get("attempts", {})), data.get("feedback")
+    return (data["current"], defaultdict(int, data.get("attempts", {})),
+            data.get("feedback"), data.get("agent_calls_spent", 0))
 
 
 def clear_state(ctx: Context) -> None:
     (ctx.run_dir / STATE_FILE).unlink(missing_ok=True)
 
 
+def budget_handoff(node_id: str, ctx: Context, spend: int) -> int:
+    """Stop between nodes and hand the situation to a person.
+
+    Deliberately not a failure. The run did nothing wrong; it reached a ceiling
+    someone set on purpose, and the only way past is a person deciding the work
+    is worth more than the ceiling says.
+    """
+    outcome = ask_human(
+        f"Run budget spent before {node_id}",
+        f"This run has used its whole budget of {BUDGET_AGENT_CALLS} agent "
+        f"call(s) and stopped before launching another. To continue, raise "
+        f"budget.agent_calls in spec.json, regenerate, and start a fresh run.",
+        ctx.run_dir,
+        node_id=node_id,
+    )
+    return 0 if outcome.ok else 1
+
+
 def drive(ctx: Context, start: str) -> int:
     attempts: dict[str, int] = defaultdict(int)
     current = start
+    spend = 0
     # A delegated run resumes where it parked. The attempt that parked was
     # already counted, so the first pass through the loop must not count it
     # again — otherwise every pause would burn a retry and a three-attempt
@@ -534,7 +566,7 @@ def drive(ctx: Context, start: str) -> int:
     if delegating():
         saved = load_state(ctx)
         if saved:
-            current, attempts, ctx.feedback = saved
+            current, attempts, ctx.feedback, spend = saved
             resuming = True
             log(f"resuming at {current} (attempt {attempts[current]})")
 
@@ -560,14 +592,29 @@ def drive(ctx: Context, start: str) -> int:
                 clear_state(ctx)
                 return give_up(current, ctx, limit)
 
+        # Checked before the call so an exhausted budget never launches one.
+        if (node["kind"] == "agent" and BUDGET_AGENT_CALLS is not None
+                and spend >= BUDGET_AGENT_CALLS):
+            log(f"  {current}: run budget of {BUDGET_AGENT_CALLS} agent "
+                f"call(s) is spent — stopping before this one")
+            return budget_handoff(current, ctx, spend)
+
         suffix = f" (attempt {attempts[current]}/{limit})" if bounded else ""
         log(f"{current} [{node['kind']}] {node['label']}{suffix}")
 
         # Written before the node runs, because a delegated node exits the
         # process from inside run_node and this is what it resumes from.
-        save_state(ctx, current, attempts)
+        save_state(ctx, current, attempts, spend)
 
         result = run_node(current, ctx)
+        # Charged on return, whatever the outcome: a call that launched and then
+        # errored or timed out has already cost money, so only crediting
+        # successes would let a crash-looping node spend without moving the
+        # counter. Two things never return here and so are never charged — a
+        # missing CLI (launched is False) and a delegated park, which exits the
+        # process before any model runs.
+        if node["kind"] == "agent" and result.launched:
+            spend += 1
         ctx.write(f"{current}.out", result.output)
         ctx.feedback = None
 
@@ -759,6 +806,7 @@ def generate(spec, out: Path, force: bool):
             trigger=spec["trigger"],
             isolation=spec.get("isolation", "none"),
             entry=spec["entry"],
+            budget=(spec.get("budget") or {}).get("agent_calls"),
             # pprint, not json.dumps: JSON's true/false/null are bare names in
             # Python and would blow up at import rather than at compile time.
             nodes=pprint.pformat(nodes, indent=4, sort_dicts=False, width=88),

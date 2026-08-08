@@ -68,6 +68,22 @@ def validate(spec):
                 "Only agent nodes run a model."
             )
 
+    budget = spec.get("budget")
+    if budget is not None:
+        if not isinstance(budget, dict):
+            problems.append(
+                'budget must be an object, e.g. {"agent_calls": 20}.'
+            )
+        else:
+            calls = budget.get("agent_calls")
+            if calls is not None and (
+                isinstance(calls, bool) or not isinstance(calls, int) or calls < 1
+            ):
+                problems.append(
+                    "budget.agent_calls must be a whole number of at least 1. A "
+                    "budget of zero would stop the run before its first agent node."
+                )
+
     outgoing = {nid: [] for nid in nodes}
     for edge in spec["edges"]:
         for end in ("from", "to"):
