@@ -49,21 +49,37 @@ Three modes, depending on what exists already:
   config — and reviews the architecture against twelve failure patterns.
 - **Scaffold** compiles an agreed spec into the orchestrator package.
 
-## Quick start
+## Install
 
-```sh
-make install     # copy skill/ into ~/.claude/skills/ — for Claude Code on this machine
-make package     # build the archive to upload — for the desktop and web clients
-make test        # run the suite — no network, credentials, or token spend
-make example     # render the bundled example spec into examples/
-make site        # rebuild the landing page in docs/ from that example
+This repo is a Claude Code plugin marketplace. Nothing to clone, no `make`, no Python:
+
+```
+/plugin marketplace add scottconverse/WorkflowWright
+/plugin install workflowwright@workflowwright
 ```
 
-Those first two are different installs, not alternatives. A skill can live in this
-repo, in `~/.claude/skills/`, and in your claude.ai account, and they only agree when
-you make them agree — see
-[installing and updating](docs/manual.md#installing-and-updating), which also covers
-how to tell which copy is actually running when more than one exists.
+And to remove it:
+
+```
+/plugin uninstall workflowwright
+```
+
+Working on the skill itself, or using the desktop or web client instead? Those read a
+different copy — see
+[installing and updating](docs/manual.md#installing-and-updating), which covers all
+three places a skill can live, how to tell which one is actually running, and how to
+remove each.
+
+## Working on it
+
+```sh
+make test        # run the suite — no network, credentials, or token spend
+make validate    # check the plugin and marketplace manifests
+make example     # render the bundled example spec into examples/
+make site        # rebuild the landing page in docs/ from that example
+make install     # copy skill/ into ~/.claude/skills/   (make uninstall removes it)
+make package     # build the archive for a claude.ai account upload
+```
 
 Then just describe the problem to Claude — the skill triggers on natural phrasing:
 

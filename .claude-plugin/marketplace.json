@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "workflowwright",
+  "description": "WorkflowWright — assign each workflow step to the cheapest resource that can actually do it, then compile the decision into artifacts that cannot drift apart.",
+  "owner": {
+    "name": "Scott Converse",
+    "url": "https://github.com/scottconverse"
+  },
+  "plugins": [
+    {
+      "name": "workflowwright",
+      "source": "./skill",
+      "description": "Design, critique, and scaffold agent workflows. Forces the code-vs-agent-vs-human assignment for every step, bounds every retry loop, and generates a runnable orchestrator whose failure paths are defined rather than discovered.",
+      "author": {
+        "name": "Scott Converse"
+      },
+      "category": "development",
+      "homepage": "https://scottconverse.github.io/WorkflowWright/",
+      "license": "MIT"
+    }
+  ]
+}

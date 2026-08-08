@@ -20,26 +20,76 @@ for lookup, not persuasion.
 
 ## Installing and updating
 
-A skill can live in three places. They are **separate copies that only agree when you
-make them agree**, and editing this repository changes none of them.
+### The normal way: install it as a plugin
 
-| Where it lives | What reads it | How it gets updated |
-|---|---|---|
-| This repo, `skill/` | nothing directly — it is the source | `git pull` |
-| `~/.claude/skills/workflowwright/` | Claude Code on this machine | `make install` |
-| Your claude.ai account | Claude desktop and web, and every machine you sign into | `make package`, then upload the archive |
+This repository is a Claude Code plugin marketplace, so installing and removing it is
+the same two commands as any other plugin. Nothing to clone, no `make`, no Python:
 
-```sh
-make install    # copy skill/ into ~/.claude/skills/
-make package    # build build/workflowwright.skill, the archive you upload
+```
+/plugin marketplace add scottconverse/WorkflowWright
+/plugin install workflowwright@workflowwright
 ```
 
-`make install` honours `SKILL_DIR` if you keep skills somewhere else. Without `make`,
-both targets are a directory copy and a zip; see the Makefile.
+If the install summary says `Run /reload-plugins to activate`, run it. The skill is
+then namespaced under the plugin — `/workflowwright:workflowwright` — and also
+triggers on natural phrasing without being named.
+
+To remove it:
+
+```
+/plugin uninstall workflowwright
+/plugin marketplace remove workflowwright     # optional, drops the catalog too
+```
+
+Updates come from the marketplace: `/plugin marketplace update` refreshes the catalog,
+and the plugin's `version` field decides whether you are offered a new copy.
+
+### The other two ways, and why they exist
+
+Beyond the plugin, a skill can live in two more places. They are **separate copies
+that only agree when you make them agree**, and editing this repository changes none
+of them.
+
+| Where it lives | What reads it | Install | Remove |
+|---|---|---|---|
+| Plugin cache | Claude Code, via the marketplace | `/plugin install` | `/plugin uninstall` |
+| `~/.claude/skills/workflowwright/` | Claude Code on this machine only | `make install` | `make uninstall` |
+| Your claude.ai account | Claude desktop and web, every machine you sign into | `make package`, then upload | delete it in skill settings |
+| This repo, `skill/` | nothing directly — it is the source | `git clone` | delete the clone |
+
+```sh
+make install      # copy skill/ into ~/.claude/skills/
+make uninstall    # remove that copy again
+make package      # build build/workflowwright.skill, the archive you upload
+make validate     # check both manifests with Claude Code's own validator
+```
+
+`make install` honours `SKILL_DIR` if you keep skills elsewhere. Without `make`, every
+one of these is a directory copy, a delete, or a zip; see the Makefile.
+
+Prefer the plugin unless you have a reason not to. The manual copies exist for
+developing the skill itself, and for the desktop and web clients, which read your
+account rather than a marketplace.
 
 **A commit is not an install, and an install is not an upload.** After changing
 anything under `skill/`, decide which copies need to follow. This is the single most
 common way to end up debugging behaviour that your source no longer contains.
+
+### Uninstalling completely
+
+Remove every copy you actually created — and note that **removing one does not
+uninstall the others**. If the skill still responds after an uninstall, another copy
+is still installed, not a failed removal:
+
+```sh
+/plugin uninstall workflowwright     # the plugin copy
+make uninstall                       # ~/.claude/skills/workflowwright/
+```
+
+then delete the skill in your claude.ai settings if you uploaded it, and delete the
+clone if you made one. Nothing is left behind elsewhere: the scripts write only where
+you point them, and a generated workflow package is an ordinary directory you can
+delete.
 
 ### Which copy am I actually running?
 
