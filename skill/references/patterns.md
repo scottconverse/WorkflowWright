@@ -47,6 +47,12 @@ safer. Plan produces a reviewable artifact, which is what lets you remove a sync
 human approval gate without flying blind. And build starts from a plan rather than from a
 blank context, so its prompt is short and specific.
 
+Scouting is the stage people most want to parallelize, and the one that punishes it
+hardest — see "Do not split understanding across nodes that cannot talk" in
+`design-method.md`. Keep it one node and give it the strongest tier; if a single pass is
+not enough, chain a second scout that reads the first's report rather than adding a
+sibling that cannot see it.
+
 **Cost:** two extra model calls, and latency, since these are inherently sequential.
 **Use when:** the work requires understanding an existing codebase. Skip it for
 self-contained mechanical tasks where there is nothing to scout.

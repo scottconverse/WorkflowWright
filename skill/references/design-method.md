@@ -53,6 +53,47 @@ Resist the opposite error too. A node per shell command is not insight, it's boo
 If two adjacent steps use the same resource, need the same context, always succeed or fail
 together, and you'd never inspect between them, they're one node.
 
+### Do not split understanding across nodes that cannot talk
+
+Every cut above is a cut in *sequence* — one node finishes, hands a payload forward, and
+the next begins. A different instinct arrives at the same moment and looks like the same
+move: splitting one stage *sideways*, across several agents working at once. Three scouts,
+one per subsystem, and a node that merges their reports.
+
+That is the split to refuse, and the reason is measured rather than aesthetic. On
+enterprise codebase tasks, four agents that could share findings while still working
+scored 62.1%; a single strong agent working alone scored 57.2%; the same compute spent on
+independent parallel agents that could not share scored **37.9%**. Partitioning the work
+was not merely less good than coordinating — it was far worse than not partitioning at
+all.
+
+The reason is that understanding a codebase does not decompose along the lines you would
+partition it on. The fact that the auth scout needs is the one the billing scout found:
+the shared abstraction that explains why both subsystems are strange in the same way.
+Working blind to each other, each one rediscovers the same context, and each one misses
+the part the other holds. You pay three times for less than one agent's worth of
+understanding.
+
+This matters here specifically, because **a spec has no channel between nodes running at
+the same time.** Every edge carries a payload from a *finished* node to a *starting* one.
+So the fan-out-and-merge design is exactly the configuration that scored 37.9% — the spec
+language can express it, and you should not.
+
+What to do instead:
+
+- **One scout node**, strongest tier, read-only tools. Sequential and unglamorous.
+- **If one pass isn't enough, chain rather than fan out.** A second scout node that reads
+  the first's report is still sharing discoveries; it has just serialized the sharing into
+  something an edge can carry. Slower than parallel, and it actually works.
+- **Push the parallelism into the node, not the graph.** If the host running an agent node
+  can spawn its own helpers that talk to each other, that is coordination and it is fine.
+  What fails is a graph whose siblings are mutually deaf.
+
+The exception is Race (see `patterns.md`), and it is instructive: racing runs parallel
+attempts that are *redundant* rather than *partitioned*. Each attempt does the whole task,
+so there is nothing to share, because nothing was divided. Parallelism is safe exactly
+when no agent needs what another one learned.
+
 ## Step 3 — Assign each node
 
 Apply the heuristic in SKILL.md. Two notes on doing it honestly:
