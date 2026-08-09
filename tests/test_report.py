@@ -94,9 +94,11 @@ class AcrossRuns(ReportCase):
 
         out = self.report(pkg, "--runs", str(self.dir / "runs"))
 
-        self.assertIn("check", out)
-        self.assertIn("failed", out)
-        self.assertIn("of", out)
+        # The whole sentence, not its words: "of" and "failed" appear in the
+        # report's own prose whatever the numbers are, so asserting on them
+        # passes even when nothing was flagged.
+        self.assertRegex(out, r"note: check on \S+ failed \d+ of \d+ attempts "
+                              r"across \d+ run\(s\)\.")
 
     def test_a_truncated_log_does_not_stop_the_report(self):
         """A killed run leaves a half-written last line. That is exactly when

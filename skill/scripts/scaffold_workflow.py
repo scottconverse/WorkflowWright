@@ -616,6 +616,12 @@ def ask_human(label, detail, context_path, *, node_id="decision"):
             f"approved, so say plainly which you mean.\\n",
             encoding="utf-8",
         )
+        # Logged here as well as on the unattended path, because delegate mode is
+        # the one where a person is actually reading this log back. Without it the
+        # history shows a decision arriving in answer to a question it never
+        # recorded being asked.
+        log_event(run_dir, "park", node=node_id, waiting_for="human",
+                  exit_code=NEEDS_HUMAN)
         print(
             f"\\n=== {label} needs a decision ===\\n{detail}\\n"
             f"Question written to: {request_path}\\n"
@@ -955,7 +961,7 @@ def drive(ctx: Context, start: str) -> int:
         if (node["kind"] == "agent" and BUDGET_AGENT_CALLS is not None
                 and spend >= BUDGET_AGENT_CALLS):
             log(f"  {current}: run budget of {BUDGET_AGENT_CALLS} agent "
-                f"call(s) is spent — stopping before this one")
+                f"call(s) is spent - stopping before this one")
             log_event(ctx.run_dir, "budget_exhausted", node=current,
                       spent=spend, budget=BUDGET_AGENT_CALLS)
             return budget_handoff(current, ctx, spend)
@@ -1006,7 +1012,7 @@ def drive(ctx: Context, start: str) -> int:
         if result.ok:
             edge = next_node(current, ("always", "pass"))
             if edge is None:
-                log(f"done — {current} was terminal")
+                log(f"done - {current} was terminal")
                 log_event(ctx.run_dir, "run_end", node=current, code=0,
                           reason="terminal node reached")
                 clear_state(ctx)
@@ -1044,7 +1050,13 @@ def drive(ctx: Context, start: str) -> int:
 
 
 def read_events(runs_root):
-    """Every event from every run under runs_root, oldest file first.
+    """Every event from every run under runs_root, in path order.
+
+    Path order, not time order: run directories are named by whoever passed
+    --run-dir, and the default one is called `latest`, which sorts after any
+    timestamped sibling. The only thing ordering decides is which backend label a
+    node carries in the summary if it was moved between backends, so a real clock
+    would buy nothing worth the assumption.
 
     Tolerant on purpose. A run that was killed mid-write leaves a partial last
     line, and a report that refuses to open because of it would be useless exactly
@@ -1113,14 +1125,18 @@ def report(runs_root) -> int:
     runs = {e.get("run") for e in events}
     print(f"{len(runs)} run(s) under {runs_root}")
     print("")
-    header = f"{'node':<18} {'backend':<14} {'attempts':>8} {'ok':>5} " \
+    header = f"{'node':<18} {'backend':<14} {'runs':>5} {'attempts':>8} {'ok':>5} " \
              f"{'failed':>7} {'no evidence':>12}"
     print(header)
     print("-" * len(header))
     for (node, backend), row in sorted(stats.items()):
         if not row["attempts"]:
             continue
-        print(f"{node:<18} {backend:<14} {row['attempts']:>8} {row['ok']:>5} "
+        # Runs alongside attempts because they answer different questions: eight
+        # failures inside one run is a node that looped, eight across eight runs
+        # is a node that does not work.
+        print(f"{node:<18} {backend:<14} {len(row['runs']):>5} "
+              f"{row['attempts']:>8} {row['ok']:>5} "
               f"{row['failed']:>7} {row['evidence_missing']:>12}")
 
     worst = [((node, backend), row) for (node, backend), row in stats.items()
@@ -1129,7 +1145,7 @@ def report(runs_root) -> int:
         print("")
         for (node, backend), row in sorted(worst):
             print(f"note: {node} on {backend} failed {row['failed']} of "
-                  f"{row['attempts']} attempts.")
+                  f"{row['attempts']} attempts across {len(row['runs'])} run(s).")
         print("A node that fails more often than it succeeds is either mis-scoped,")
         print("under-modelled for the work, or checked by something stricter than")
         print("the prompt asks for. All three are worth reading the payloads over.")
@@ -1277,9 +1293,11 @@ python3 workflow.py --report         # summarise past runs; reads only, runs not
 `--only` is the reason payloads are files rather than variables: you can rerun one
 node against a fixed input instead of replaying the whole workflow to reach it.
 
-`--report` reads every `run.jsonl` under `runs/` and counts attempts, successes,
+`--report` reads every `run.jsonl` under `runs/` and counts runs, attempts, successes,
 failures and missing evidence per node, grouped by the backend each node ran on. One
-run cannot tell you a node is unreliable; twenty can. It reports rather than routes --
+run cannot tell you a node is unreliable; twenty can -- and runs sit beside attempts
+because eight failures inside one run is a node that looped, while eight across eight
+runs is a node that does not work. It reports rather than routes --
 the same numbers would drive an automatic model choice and deliberately do not, since
 a run that silently re-routes itself is a different kind of program. What to do about
 a node that keeps failing stays your call, and belongs in `spec.json` where the next

@@ -111,12 +111,25 @@ of them.
 ```sh
 make install      # copy skill/ into ~/.claude/skills/
 make uninstall    # remove that copy again
-make package      # build build/workflowwright.skill, the archive you upload
+make package      # build build/workflowwright.zip, the archive you upload
 make validate     # check both manifests with Claude Code's own validator
 ```
 
-`make install` honours `SKILL_DIR` if you keep skills elsewhere. Without `make`, every
-one of these is a directory copy, a delete, or a zip; see the Makefile.
+`make install` honours `SKILL_DIR` if you keep skills elsewhere. Without `make`, each
+is one command against the same scripts the Makefile calls:
+
+```sh
+python3 scripts/build_package.py            # what `make package` runs
+python3 scripts/uninstall.py --dry-run      # what `make uninstall` runs, safely
+```
+
+**`make uninstall` can refuse, and that is the feature.** It will not delete a
+directory with no `SKILL.md` in it, so a mistyped `SKILL_DIR` cannot take out
+something unrelated; and it will not delete a directory under version control,
+because the ordinary way to work on a skill is to clone it and point a harness at
+the clone — which makes the install *and* the working copy the same directory, with
+your unpushed commits in it. Both refusals explain themselves and delete nothing.
+`--dry-run` reports what would happen and changes nothing either way.
 
 Prefer the plugin unless you have a reason not to. The manual copies exist for
 developing the skill itself, and for the desktop and web clients, which read your
@@ -534,11 +547,15 @@ writing that down all along without ever reading it:
 python3 workflow.py --report
 ```
 
-It scans every `run.jsonl` under `runs/` and prints attempts, successes, failures and
-missing-evidence counts per node — **grouped by the backend the node ran on**, which
-is the comparison worth having once nodes can run on different systems. A node that
-fails more often than it succeeds gets called out, over at least three attempts, since
-below that it is noise.
+It scans every `run.jsonl` under `runs/` and prints run count, attempts, successes,
+failures and missing-evidence counts per node — **grouped by the backend the node ran
+on**, which is the comparison worth having once nodes can run on different systems. A
+node that fails more often than it succeeds gets called out, over at least three
+attempts, since below that it is noise.
+
+Runs and attempts are both there because they answer different questions: eight
+failures inside one run is a node that looped, and eight failures across eight runs is
+a node that does not work.
 
 Two properties it holds to deliberately:
 

@@ -11,6 +11,8 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -29,6 +31,48 @@ def run_script(name, *args):
                           capture_output=True, text=True, timeout=180)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     return proc
+
+
+def make_cli_stub(directory, name, body):
+    """A fake backend CLI that records argv and stdin, then behaves like the real one.
+
+    Python rather than a shell script for the reason `make_stub_claude` gives:
+    Windows cannot execute an extensionless shebang script, and an unlaunchable
+    stub falls through to PATH -- which on this machine means a real CLI spending
+    real tokens from inside the test suite.
+
+    Returns the WORKFLOW_*_CLI value that routes the runner here.
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    script = directory / f"{name}_stub.py"
+    script.write_text(
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "here = Path(__file__).resolve().parent\n"
+        "argv = sys.argv[1:]\n"
+        "stdin = sys.stdin.read()\n"
+        '(here / "argv.json").write_text(json.dumps(argv), encoding="utf-8")\n'
+        '(here / "stdin.txt").write_text(stdin, encoding="utf-8")\n'
+        + body,
+        encoding="utf-8",
+    )
+    return f'"{sys.executable}" "{script}"'.replace(os.sep, "/")
+
+
+CODEX_STUB = (
+    # The real CLI writes its final message to the path after
+    # --output-last-message and streams JSONL events to stdout.
+    'out = argv[argv.index("--output-last-message") + 1]\n'
+    'Path(out).write_text("codex says hello", encoding="utf-8")\n'
+    'print(json.dumps({"type": "thread.started", '
+    '"thread_id": "codex-sess-1"}))\n'
+)
+
+AGY_STUB = (
+    'print(json.dumps({"conversation_id": "agy-conv-1", "status": "SUCCESS",\n'
+    '                  "response": "agy says hello", "num_turns": 1}))\n'
+)
 
 
 def agent_spec(**node_fields):
@@ -237,6 +281,98 @@ class RunnerBackends(unittest.TestCase):
 
     def test_an_unknown_backend_fails_without_launching_anything(self):
         result = self.runner.run_agent("hi", backend="nope")
+        self.assertFalse(result.ok)
+        self.assertFalse(result.launched)
+
+    def stub(self, attr, name, body):
+        """Point one backend constant at a stub and return where it records itself.
+
+        The runner reads these from the environment at import, and this module is
+        imported once for the class, so the constant is patched directly rather
+        than through os.environ -- which would set a variable nothing re-reads.
+        """
+        home = self.dir / f"{name}-{self.id().rsplit('.', 1)[-1]}"
+        value = make_cli_stub(home, name, body)
+        original = getattr(self.runner, attr)
+        setattr(self.runner, attr, shlex.split(value))
+        self.addCleanup(setattr, self.runner, attr, original)
+        return home
+
+    def argv_of(self, home):
+        return json.loads((home / "argv.json").read_text(encoding="utf-8"))
+
+    def stdin_of(self, home):
+        return (home / "stdin.txt").read_text(encoding="utf-8")
+
+    def test_codex_gets_the_prompt_on_stdin_and_a_read_only_sandbox(self):
+        """Three facts established against the real CLI and invisible to every
+        other test: `-` reads the prompt from stdin, the sandbox is not inherited,
+        and the reply is read from the file rather than the event stream."""
+        home = self.stub("CODEX_CLI", "codex", CODEX_STUB)
+        run_dir = self.dir / "codex-run"
+
+        result = self.runner.run_agent("summarise this", backend="codex",
+                                       model="gpt-5-codex", node_id="work",
+                                       run_dir=run_dir)
+
+        self.assertTrue(result.ok, result.output)
+        self.assertEqual(result.output, "codex says hello")
+        self.assertEqual(result.session_id, "codex-sess-1")
+
+        argv = self.argv_of(home)
+        self.assertEqual(argv[0], "exec")
+        self.assertEqual(argv[-1], "-", "the prompt must come from stdin")
+        self.assertEqual(self.stdin_of(home), "summarise this")
+        self.assertEqual(argv[argv.index("-s") + 1], "read-only",
+                         "codex would otherwise edit files without asking")
+        self.assertIn("--skip-git-repo-check", argv)
+        self.assertIn("-m", argv)
+
+    def test_codex_resume_puts_the_session_id_where_the_cli_expects_it(self):
+        """`codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]` -- the id is
+        positional, after the flags and before the prompt. Get the order wrong and
+        the id is read as the prompt, which fails as a confusing success."""
+        home = self.stub("CODEX_CLI", "codex", CODEX_STUB)
+
+        self.runner.run_agent("try again", backend="codex", session_id="sess-abc",
+                              node_id="work", run_dir=self.dir / "codex-resume")
+
+        argv = self.argv_of(home)
+        self.assertEqual(argv[:2], ["exec", "resume"])
+        self.assertEqual(argv[-2:], ["sess-abc", "-"])
+
+    def test_agy_gets_the_prompt_on_argv_because_it_ignores_stdin(self):
+        home = self.stub("AGY_CLI", "agy", AGY_STUB)
+
+        result = self.runner.run_agent("summarise this", backend="agy", model="gemini")
+
+        self.assertTrue(result.ok, result.output)
+        self.assertEqual(result.output, "agy says hello")
+        self.assertEqual(result.session_id, "agy-conv-1")
+
+        argv = self.argv_of(home)
+        self.assertEqual(argv[argv.index("-p") + 1], "summarise this")
+        self.assertEqual(argv[argv.index("--output-format") + 1], "json")
+        self.assertEqual(self.stdin_of(home), "",
+                         "sending agy a prompt on stdin would be sending it nowhere")
+
+    def test_agy_resumes_by_conversation_id(self):
+        home = self.stub("AGY_CLI", "agy", AGY_STUB)
+
+        self.runner.run_agent("again", backend="agy", session_id="agy-conv-1")
+
+        argv = self.argv_of(home)
+        self.assertEqual(argv[argv.index("--conversation") + 1], "agy-conv-1")
+
+    def test_a_cli_backend_that_is_not_installed_does_not_charge_the_budget(self):
+        """Same distinction the HTTP backend makes, and it has to hold for all of
+        them or the budget means something different per node."""
+        self.addCleanup(setattr, self.runner, "CODEX_CLI", self.runner.CODEX_CLI)
+        self.runner.CODEX_CLI = ["definitely-not-a-real-binary"]
+
+        result = self.runner.run_agent("hi", backend="codex", node_id="work",
+                                       run_dir=self.dir / "missing")
+
         self.assertFalse(result.ok)
         self.assertFalse(result.launched)
 

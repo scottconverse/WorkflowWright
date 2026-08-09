@@ -47,6 +47,40 @@ def loop_spec():
     }
 
 
+def gate_spec():
+    """Entry code node, then a human gate. Minimal, so failures are legible."""
+    return {
+        "name": "gate", "goal": "exercise a human gate", "trigger": "manual",
+        "isolation": "none", "entry": "prep",
+        "nodes": [
+            {"id": "prep", "label": "Prepare", "kind": "code", "detail": "sets up"},
+            {"id": "approve", "label": "Approve the change", "kind": "human",
+             "detail": "Decide whether this is safe to ship."},
+            {"id": "ship", "label": "Ship", "kind": "code", "detail": "final"},
+        ],
+        "edges": [
+            {"from": "prep", "to": "approve", "when": "always", "payload": "work.txt"},
+            {"from": "approve", "to": "ship", "when": "pass", "payload": "work.txt"},
+            {"from": "approve", "to": "prep", "when": "fail", "payload": "why.txt",
+             "loop": True},
+        ],
+        "open_questions": [],
+    }
+
+
+def bounded_gate_spec():
+    """The same, with prep's retry ceiling declared so the validator accepts it."""
+    spec = gate_spec()
+    for node in spec["nodes"]:
+        if node["id"] == "prep":
+            node["max_attempts"] = 2
+            node["on_exhausted"] = "fail"
+    return spec
+
+
+GATE_STEPS = {"prep": "echo prepared\n", "ship": "echo shipped\n"}
+
+
 class ScaffoldCase(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tmpdir())
@@ -445,40 +479,8 @@ class TestHumanGateDelegation(ScaffoldCase):
     separate mechanism.
     """
 
-    def gate_spec(self):
-        """Entry code node, then a human gate. Minimal, so failures are legible."""
-        return {
-            "name": "gate", "goal": "exercise a human gate", "trigger": "manual",
-            "isolation": "none", "entry": "prep",
-            "nodes": [
-                {"id": "prep", "label": "Prepare", "kind": "code", "detail": "sets up"},
-                {"id": "approve", "label": "Approve the change", "kind": "human",
-                 "detail": "Decide whether this is safe to ship."},
-                {"id": "ship", "label": "Ship", "kind": "code", "detail": "final"},
-            ],
-            "edges": [
-                {"from": "prep", "to": "approve", "when": "always", "payload": "work.txt"},
-                {"from": "approve", "to": "ship", "when": "pass", "payload": "work.txt"},
-                {"from": "approve", "to": "prep", "when": "fail", "payload": "why.txt",
-                 "loop": True},
-            ],
-            "open_questions": [],
-        }
-
-    def gate_pkg(self):
-        pkg = self.build(self.gate_spec(), steps={
-            "prep": "echo prepared\n", "ship": "echo shipped\n"})
-        # prep is a retry target, so it needs a bound; add it to the spec instead
-        # of hand-editing the generated package.
-        return pkg
-
     def build_gate(self):
-        spec = self.gate_spec()
-        for node in spec["nodes"]:
-            if node["id"] == "prep":
-                node["max_attempts"] = 2
-                node["on_exhausted"] = "fail"
-        return self.build(spec, steps={"prep": "echo prepared\n", "ship": "echo shipped\n"})
+        return self.build(bounded_gate_spec(), steps=GATE_STEPS)
 
     def test_gate_parks_and_names_the_answer_file(self):
         pkg = self.build_gate()
@@ -540,7 +542,7 @@ class TestHumanGateDelegation(ScaffoldCase):
     def test_on_exhausted_human_parks_and_is_answerable(self):
         """The exhaustion handoff has to be answerable too, or a bounded loop
         that runs out simply dead-ends for anyone without a terminal."""
-        spec = self.gate_spec()
+        spec = gate_spec()
         for node in spec["nodes"]:
             if node["id"] == "prep":
                 node["max_attempts"] = 1
@@ -861,6 +863,25 @@ class TestEventLog(ScaffoldCase):
         self.assertGreater(len(after), first, "the second process truncated the log")
         self.assertTrue(any(e["event"] == "run_end" for e in after))
 
+    def test_a_delegated_human_gate_records_its_park(self):
+        """Both park kinds, or the log is only true in the mode nobody uses.
+
+        Agent parks were logged from the start and human parks were not, so in
+        delegate mode -- the mode with a person reading this back -- the history
+        showed a decision arriving in answer to a question it never recorded
+        being asked.
+        """
+        pkg = self.build(bounded_gate_spec(), steps=GATE_STEPS)
+        run_dir = self.dir / "run"
+
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+
+        self.assertEqual(code, 75, out)
+        parks = [e for e in self.events(run_dir) if e["event"] == "park"]
+        self.assertEqual([p["waiting_for"] for p in parks], ["human"], parks)
+        self.assertEqual(parks[0]["node"], "approve")
+        self.assertEqual(parks[0]["exit_code"], 75)
+
     def test_an_evidence_failure_names_the_artifact_in_the_log(self):
         spec = loop_spec()
         for node in spec["nodes"]:
@@ -879,13 +900,7 @@ class TestEventLog(ScaffoldCase):
         self.assertEqual(evidence[0].get("artifact"), "proof.txt")
 
     def test_a_human_decision_is_recorded_in_the_log(self):
-        spec = TestHumanGateDelegation.gate_spec(self)
-        for node in spec["nodes"]:
-            if node["id"] == "prep":
-                node["max_attempts"] = 2
-                node["on_exhausted"] = "fail"
-        pkg = self.build(spec, steps={
-            "prep": "echo prepared\n", "ship": "echo shipped\n"})
+        pkg = self.build(bounded_gate_spec(), steps=GATE_STEPS)
         run_dir = self.dir / "run"
         run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
         (run_dir / "approve.answer.md").write_text("yes\nlooks right", encoding="utf-8")

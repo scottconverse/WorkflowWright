@@ -95,7 +95,7 @@ def validate(spec):
     nodes = {n["id"]: n for n in spec["nodes"]}
 
     if len(nodes) != len(spec["nodes"]):
-        problems.append("Duplicate node ids — every node needs a unique id.")
+        problems.append("Duplicate node ids - every node needs a unique id.")
 
     if spec["entry"] not in nodes:
         problems.append(f"entry '{spec['entry']}' is not a node id.")
@@ -224,17 +224,17 @@ def validate(spec):
             continue
         if "pass" in whens and "fail" not in whens:
             problems.append(
-                f"Node '{nid}' has a pass edge but no fail edge — undefined behaviour "
+                f"Node '{nid}' has a pass edge but no fail edge - undefined behaviour "
                 "when this step fails."
             )
         if "fail" in whens and "pass" not in whens:
             problems.append(
-                f"Node '{nid}' has a fail edge but no pass edge — the success path "
+                f"Node '{nid}' has a fail edge but no pass edge - the success path "
                 "goes nowhere."
             )
 
     if len(terminal) == 0:
-        problems.append("No terminal node — every path loops forever.")
+        problems.append("No terminal node - every path loops forever.")
 
     # Any node targeted by a fail edge is a retry target and needs a bound —
     # except a human one. The rule exists because unbounded retries against a
@@ -255,7 +255,7 @@ def validate(spec):
                 )
             elif not target.get("on_exhausted"):
                 problems.append(
-                    f"Node '{target['id']}' has max_attempts but no on_exhausted — "
+                    f"Node '{target['id']}' has max_attempts but no on_exhausted - "
                     "undefined behaviour once retries run out."
                 )
 
