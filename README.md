@@ -143,10 +143,13 @@ Four things the generated driver gets right that are easy to get wrong by hand:
 - **Payloads as files.** Every edge's payload lands in a run directory, so
   `--only <node>` can rerun one node against a fixed input instead of replaying the
   whole workflow to reach it — and a failed run leaves something readable behind.
-- **Prompts on stdin.** Prompts carry whole payload files and routinely exceed the
-  8191-character ceiling of `cmd.exe` shims, which also truncate at the first
-  newline — silently, so the agent answers a fragment and the run looks fine. stdin
-  has no ceiling and no quoting hazards on any platform.
+- **Prompts on stdin wherever stdin is read.** Prompts carry whole payload files and
+  routinely exceed the 8191-character ceiling of `cmd.exe` shims, which also truncate
+  at the first newline — silently, so the agent answers a fragment and the run looks
+  fine. stdin has no ceiling and no quoting hazards. One of the backends below,
+  Antigravity, ignores stdin and takes its prompt on the command line; that node is
+  the one place a ceiling still exists, so an oversized prompt there is refused with
+  an explanation rather than cut in half and answered.
 
 Each agent node also names **which system runs it** — `claude`, `codex`, `agy`, or any
 OpenAI-compatible server you host. No single one reaches every model and they bill to
@@ -184,6 +187,14 @@ the model call moves.
   without a terminal — and an answer that parses as neither yes nor no is recorded as
   not approved.
 
+And one way to read back what a run already knew:
+[`workflow.py --report`](docs/manual.md#reading-the-logs-back---report) counts runs,
+attempts, failures and missing evidence per node from the event logs, grouped by the
+backend each node ran on. One run cannot tell you a node is unreliable; twenty can. It
+reports and does not route — a run that silently re-routes itself is a different kind of
+program, so what to do about a node that keeps failing stays your decision and belongs
+in `spec.json`.
+
 The [manual](docs/manual.md) covers all of this in depth, including
 [six things that look like bugs and are not](docs/manual.md#the-traps).
 Design decisions with lasting consequences are recorded in
@@ -204,10 +215,11 @@ script, or a better prompt, and the skill will tell you so.
 - **Playwright** (optional) — with it, rendered HTML artifacts embed the diagram as
   inline SVG and work offline, in sandboxed viewers, and forever; without it, the
   HTML falls back to loading Mermaid from a CDN and needs network access to draw.
-- **`claude` CLI** — needed only to run a generated workflow *unattended*. Designing,
-  rendering, critiquing, and scaffolding never call a model at all, and
-  `workflow.py --delegate` runs a workflow without any CLI by handing each agent node
-  to whatever assistant session you are working in.
+- **An agent CLI, or a reachable endpoint** — needed only to run a generated workflow
+  *unattended*, and only the ones its nodes actually name: `claude`, `codex`, `agy`,
+  or an OpenAI-compatible server. Designing, rendering, critiquing, and scaffolding
+  never call a model at all, and `workflow.py --delegate` runs a workflow without any
+  CLI by handing each agent node to whatever assistant session you are working in.
 
 ## Tests
 
