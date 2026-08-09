@@ -396,6 +396,30 @@ class TestDelegateMode(ScaffoldCase):
         run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
         self.assertFalse((run_dir / "driver-state.json").exists())
 
+    def test_a_finished_run_keeps_its_receipt(self):
+        """A completed run should leave the record of what it cost.
+
+        Retiring the state file has to stop a resume, which a rename does. A
+        delete also threw away the attempt counts and the budget spend — for
+        the successful run, which is the one whose receipt you most want."""
+        pkg = self.build(self.agent_spec(), steps={
+            "judge": "exit 0\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        (run_dir / "gen.result.md").write_text("the draft", encoding="utf-8")
+        code, out = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+
+        self.assertEqual(code, 0, out)
+        self.assertFalse((run_dir / "driver-state.json").exists(),
+                         "the live name must be gone or the run would resume itself")
+        final = run_dir / "driver-state.final.json"
+        self.assertTrue(final.exists(), "a finished run must leave its receipt")
+        record = json.loads(final.read_text(encoding="utf-8"))
+        self.assertIn("attempts", record)
+        self.assertGreaterEqual(record["attempts"].get("gen", 0), 1)
+
     def test_default_mode_still_uses_the_cli(self):
         """Delegation is additive: without the switch nothing changes."""
         pkg = self.build(self.agent_spec(), steps={

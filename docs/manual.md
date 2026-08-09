@@ -430,6 +430,28 @@ The run directory accumulates one file per payload edge plus `<node>.out` for ev
 node's output, successful or not. A failed run leaves its evidence behind; nothing is
 held only in memory.
 
+### What a run leaves for auditing
+
+Everything a run did lands in the run directory as ordinary files:
+
+| File | What it records |
+|---|---|
+| `driver-state.json` | Live position: current node, attempts per node, pending feedback, budget spent |
+| `driver-state.final.json` | The same, retired when the run ends — the receipt for a finished run |
+| `<node>.out` | Every node's output, whether it succeeded or failed |
+| `<node>.prompt.md` | The exact composed prompt an agent node was given |
+| `<node>.result.consumed.md` | A delegated answer, kept after use rather than deleted |
+| `<node>.decision.json` | A human gate: what was presented, the verdict, the reasoning, a UTC timestamp |
+| `<node>.answer.consumed.md` | The written answer behind that decision |
+| named payloads | Every artifact that travelled an edge |
+
+Two limits worth knowing before you rely on it. **Retries overwrite**: `<node>.out`,
+`<node>.prompt.md`, and the `.consumed` files keep only the most recent attempt, so you
+can audit where a run ended up but not everything it tried. And nothing here is
+tamper-evident — these are plain files with no hashing or append-only guarantee. It is
+a forensic trail for understanding a run, not an attestation you could hand to an
+auditor who distrusts the machine that wrote it.
+
 ## Writing good prompts and steps
 
 Prompts are where a well-structured workflow still produces bad output. The generated

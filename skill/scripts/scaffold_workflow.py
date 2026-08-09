@@ -520,6 +520,7 @@ def give_up(node_id: str, ctx: Context, limit: int) -> int:
 
 
 STATE_FILE = "driver-state.json"
+FINAL_STATE_FILE = "driver-state.final.json"
 
 
 def save_state(ctx: Context, current: str, attempts: dict[str, int],
@@ -556,7 +557,20 @@ def load_state(ctx: Context):
 
 
 def clear_state(ctx: Context) -> None:
-    (ctx.run_dir / STATE_FILE).unlink(missing_ok=True)
+    """Retire the state file so a finished run cannot resume itself.
+
+    Renamed rather than deleted. Stopping the resume needs the live name gone,
+    which a rename achieves — and deleting it would throw away the one record
+    of what the run cost: how many attempts each node took and how much budget
+    it spent. That is exactly the receipt worth keeping for a run that
+    succeeded, which is the case a delete was silently discarding.
+    """
+    live = ctx.run_dir / STATE_FILE
+    if not live.exists():
+        return
+    final = ctx.run_dir / FINAL_STATE_FILE
+    final.unlink(missing_ok=True)
+    live.rename(final)
 
 
 def budget_handoff(node_id: str, ctx: Context, spend: int) -> int:
