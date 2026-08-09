@@ -27,7 +27,20 @@ On Windows those are `%USERPROFILE%\.codex\skills\workflowwright` and
 `%USERPROFILE%\.gemini\config\skills\workflowwright`. Delete the directory to
 uninstall.
 
-Both were verified by installing to those paths and running the scripts from them.
+Both were verified by installing to those paths and then asking each host, without
+naming any file, to use the skill and run its renderer. Codex and Antigravity each
+found it by description alone, read it, executed the script, and reported the
+validator's exit code — so discovery, natural-phrasing triggering, and execution all
+work in both.
+
+One difference showed up in that test. Under Codex's sandbox the rendered artifact came
+back with a CDN script tag instead of an inline SVG; Antigravity produced the inline
+SVG. The renderer pre-draws the diagram with headless Chromium when it can, and a
+sandbox that blocks launching a browser makes it fall back — correctly, and it prints
+the reason. The artifact still renders in a normal browser; it just needs network. If
+you want self-contained artifacts from a sandboxed host, render them outside the
+sandbox.
+
 Antigravity's own customization guide documents the layout as
 `skills/<name>/SKILL.md` plus optional `scripts/`, `references/`, `examples/`, and
 `resources/`; `skill/` satisfies it as-is, and carries an extra `assets/` directory
