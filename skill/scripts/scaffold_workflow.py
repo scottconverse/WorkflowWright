@@ -827,8 +827,15 @@ naturally.
 
 This comment is stripped before the prompt is sent, so notes to yourself are free.
 
-Keep this specific. A vague prompt here is the most common reason a well-structured
-workflow still produces bad output. -->
+Say what done looks like, not how to get there. State the goal, the inputs, and the
+artifact that proves it worked; leave the route to the agent. Writing the procedure
+spends tokens on instructions it could derive, and caps the result at your guess
+instead of its investigation. If you find yourself writing step 3, you are doing the
+work twice.
+
+Specific about the outcome, then. A vague prompt here is the most common reason a
+well-structured workflow still produces bad output — but "vague" means unclear about
+what is wanted, not silent about method. -->
 
 {reads_block}
 ## Your task
