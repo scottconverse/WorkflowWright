@@ -790,6 +790,76 @@ class TestEvidenceGates(ScaffoldCase):
         self.assertIn("shipped", (run_dir / "ship.out").read_text(encoding="utf-8"))
 
 
+class TestSpecTextStaysData(ScaffoldCase):
+    """A spec is a data file. Nothing in it may become code in the package.
+
+    Specs are shared -- they are the source of truth this tool tells you to
+    keep and hand around -- and critique mode reconstructs them from scripts
+    and CI configs the person scaffolding did not write. So spec text is not
+    automatically the author's own, and a generated step script is a place
+    where text turns into commands if nobody stops it.
+    """
+
+    def spec_with(self, payload):
+        return {
+            "name": "inject", "goal": "g", "trigger": "t", "isolation": "none",
+            "entry": "a",
+            "nodes": [
+                {"id": "a", "label": f"L {payload}", "kind": "code",
+                 "detail": f"D {payload}", "max_attempts": 2, "on_exhausted": "fail"},
+                {"id": "b", "label": "B", "kind": "agent",
+                 "detail": f"agent {payload}", "max_attempts": 2,
+                 "on_exhausted": "fail"},
+                {"id": "s", "label": "S", "kind": "human", "detail": "d"},
+            ],
+            "edges": [
+                {"from": "a", "to": "b", "when": "pass", "payload": "p"},
+                {"from": "a", "to": "s", "when": "fail", "payload": "w"},
+                {"from": "b", "to": "s", "when": "pass", "payload": "p"},
+                {"from": "b", "to": "a", "when": "fail", "payload": "w", "loop": True},
+            ],
+            "open_questions": [],
+        }
+
+    def test_a_newline_in_a_label_cannot_become_a_shell_command(self):
+        """The step script carries the label and detail as `#` comments. A
+        newline ended the comment and put what followed at the start of a
+        command line, where bash ran it the first time the workflow reached
+        that step -- before the stub's own `exit 1` could stop anything."""
+        for name, payload in {
+            "newline": "x\necho INJECTED",
+            "crlf": "x\r\necho INJECTED",
+            "bare carriage return": "x\recho INJECTED",
+            "several lines": "a\nb\necho INJECTED",
+        }.items():
+            with self.subTest(payload=name):
+                pkg = self.build(self.spec_with(payload))
+                script = (pkg / "steps" / "a.sh").read_text(encoding="utf-8")
+                live = [line for line in script.splitlines()
+                        if line.strip() and not line.lstrip().startswith("#")]
+                self.assertNotIn("echo INJECTED", live,
+                                 f"spec text became a command:\n{script}")
+
+    def test_the_generated_node_table_is_pure_data(self):
+        """NODES is written with pprint, so it is a literal. Pinning that means
+        a future switch to string building has to argue with a test first."""
+        pkg = self.build(self.spec_with('x") ; import os #'))
+        tree = ast.parse((pkg / "workflow.py").read_text(encoding="utf-8"))
+        assigns = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                   and any(getattr(t, "id", None) == "NODES" for t in n.targets)]
+        self.assertEqual(len(assigns), 1)
+        ast.literal_eval(assigns[0].value)  # raises if anything is not a literal
+
+    def test_detail_cannot_close_the_prompt_note_block_early(self):
+        """The note block is stripped before the prompt is sent, so closing it
+        early puts the template's own authoring guidance into the live prompt."""
+        pkg = self.build(self.spec_with("x --> LEAKED <!--"))
+        prompt = (pkg / "prompts" / "b.md").read_text(encoding="utf-8")
+        before_close = prompt.split("-->")[0]
+        self.assertIn("LEAKED", before_close,
+                      "the detail escaped the note block the template opens with")
+
+
 class TestPackageDocumentsItself(ScaffoldCase):
     """The generated README must describe every interface the package accepts.
 

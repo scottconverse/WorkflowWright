@@ -1279,6 +1279,36 @@ TODO: state exactly what this node must output, and where it should be written.
 The next node expects: {writes}
 """
 
+def uncommenting(text):
+    """Keep spec text inside the HTML comment the prompt file opens with.
+
+    A `-->` in a node's detail closed that block early, which put the template's
+    own authoring guidance -- meant for the person filling the prompt in, and
+    stripped before anything is sent -- into the live prompt instead. Nothing is
+    executed either way, so this is tidiness rather than safety; it is here
+    because it is the same mistake as commented(), and fixing one shape of it
+    while leaving the other is how the second one gets forgotten.
+    """
+    return str(text).replace("-->", "--&gt;")
+
+
+def commented(text):
+    """Keep spec text inside the shell comment it is written into.
+
+    A newline in a node's label or detail used to end the `#` line and put
+    whatever followed at the start of a command line, where bash ran it -- the
+    first time the workflow reached that step, before the stub's own `exit 1`.
+    Specs are shared files, and critique mode reconstructs them from material
+    the person scaffolding did not write, so this is a data file turning into
+    commands: the thing to prevent, not to document.
+
+    Continuation lines are prefixed rather than joined, so a genuinely
+    multi-line detail keeps its shape instead of being flattened into one line.
+    """
+    lines = str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return "\n# ".join(lines)
+
+
 STEP_TEMPLATE = """#!/usr/bin/env bash
 # Step `{node_id}` — {label}
 #
@@ -1450,7 +1480,7 @@ def generate(spec, out: Path, force: bool):
             body = PROMPT_TEMPLATE.format(
                 node_id=nid,
                 model=node.get("model", "default model"),
-                detail=node.get("detail", ""),
+                detail=uncommenting(node.get("detail", "")),
                 reads_block=reads_block,
                 feedback_block=feedback_block,
                 writes=", ".join(node.get("writes", [])) or "(nothing declared)",
@@ -1458,7 +1488,9 @@ def generate(spec, out: Path, force: bool):
         elif kind == "code":
             path = out / "steps" / f"{nid}.sh"
             body = STEP_TEMPLATE.format(
-                node_id=nid, label=node["label"], detail=node.get("detail", "")
+                node_id=nid,
+                label=commented(node["label"]),
+                detail=commented(node.get("detail", "")),
             )
         else:
             continue
