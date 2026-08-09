@@ -1031,7 +1031,7 @@ def main():
         for p in problems:
             print(f"  - {p}", file=sys.stderr)
         print(
-            "\nFix these in the spec first — they become real defects in generated "
+            "\nFix these in the spec first - they become real defects in generated "
             "code, and an unbounded retry loop is much cheaper to fix here.",
             file=sys.stderr,
         )

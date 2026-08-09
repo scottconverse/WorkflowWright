@@ -783,7 +783,7 @@ FAVICON = (
 def build():
     if not EXAMPLE_ARTIFACT.exists():
         sys.exit(
-            f"missing {EXAMPLE_ARTIFACT.relative_to(REPO)} — run `make example` first."
+            f"missing {EXAMPLE_ARTIFACT.relative_to(REPO)} - run `make example` first."
         )
     svg = extract_diagram(EXAMPLE_ARTIFACT)
     if svg is None:
@@ -814,7 +814,7 @@ def main():
     if args.check:
         current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
         if current != page:
-            sys.exit("docs/index.html is out of date — run `make site`.")
+            sys.exit("docs/index.html is out of date - run `make site`.")
         print("docs/index.html is up to date")
         return
     OUT.write_text(page, encoding="utf-8")

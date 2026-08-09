@@ -57,7 +57,7 @@ def main() -> int:
             "The upload would be rejected."
         )
 
-    print(f"built {out} — {len(names)} files, {out.stat().st_size:,} bytes")
+    print(f"built {out} - {len(names)} files, {out.stat().st_size:,} bytes")
     print("  SKILL.md is at the archive root, as the uploader requires")
     return 0
 
