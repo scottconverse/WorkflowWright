@@ -564,7 +564,8 @@ One run cannot tell you a node is unreliable. Twenty can, and the workflow has b
 writing that down all along without ever reading it:
 
 ```sh
-python3 workflow.py --report
+python3 workflow.py --report                    # runs/ inside the package
+python3 workflow.py --report --runs /var/runs   # anywhere else you keep them
 ```
 
 It scans every `run.jsonl` under `runs/` and prints run count, attempts, successes,

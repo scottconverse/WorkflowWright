@@ -83,11 +83,29 @@ self-hosted one: routing is classification, classification is the narrow shape o
 small models are measurably good at, and the dispatch then costs nothing so the whole
 budget goes to the work. Set `"backend": "openai-compat"` with an `endpoint`.
 
-One caveat that does not apply to the other nodes you would route locally. A bad
-summary announces itself; a bad route does not. Sending a subtle production bug down
-the chore path does not fail, it just quietly under-serves. So review a classifier's
-split across a sample of real items before trusting it, rather than checking outputs
-one at a time.
+**That needs one more node than the diagram above shows, and the validator will insist
+on it.** A self-hosted node must be the target of a `fail` edge — something has to be
+able to reject its output. For a classifier the natural rejecter is a `code` node that
+checks the returned label is one of the values you actually dispatch on, with its fail
+edge going back to the classifier and a `max_attempts` on it:
+
+```
+intake ──always──> classify ──always──> check-label ──> chore-flow
+                       ^                     │      ├──> bug-flow
+                       └───────fail──────────┘      └──> feature-flow
+```
+
+A label outside the set is the characteristic small-model failure here, it costs a
+`grep` to detect, and detecting it is what makes the endpoint's output a result rather
+than raw material. Without that node the spec does not compile, and it should not: an
+unchecked route decides how much machinery every downstream item gets.
+
+One caveat the check node does *not* cover, and nothing automatic will. A bad summary
+announces itself; a bad route does not. `bug` is a valid label, so a subtle production
+bug sent down the chore path passes every check and simply under-serves, quietly. So
+review a classifier's split across a sample of real items before trusting it, rather
+than checking outputs one at a time — and once it is running, `workflow.py --report`
+groups by backend, which is where a classifier that got worse shows up.
 
 **Cost:** a classification step, plus the real cost, which is maintaining N downstream
 workflows instead of one.
