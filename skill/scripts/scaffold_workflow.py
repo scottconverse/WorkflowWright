@@ -143,6 +143,7 @@ def delegate_agent(prompt, *, node_id, run_dir, model=None, tools=None):
         return Result(bool(text), text or "delegated node returned nothing")
 
     prompt_path.write_text(prompt, encoding="utf-8")
+    log_event(run_dir, "park", node=node_id, waiting_for="agent", exit_code=NEEDS_AGENT)
     spec_note = ""
     if model:
         spec_note = f"This node is specified for model {model}"
@@ -228,6 +229,39 @@ def run_step(script, *, cwd=None):
     return Result(proc.returncode == 0, (proc.stdout + proc.stderr).strip())
 
 
+EVENT_LOG = "run.jsonl"
+MAX_EVENT_OUTPUT = 20_000
+
+
+def log_event(run_dir, event, **fields):
+    """Append one JSON object to the run's event log.
+
+    The run directory keeps only the latest of everything: <node>.out and
+    <node>.prompt.md are overwritten on every retry. That loses the one thing
+    worth seeing when a bounded loop burns its ceiling — what changed between
+    attempt two and attempt three. This keeps every attempt.
+
+    Opened for append, never for write, because each delegated pause is a new
+    process and truncating here would quietly discard the run's whole history
+    at the first park.
+    """
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    output = fields.get("output")
+    if isinstance(output, str) and len(output) > MAX_EVENT_OUTPUT:
+        # A runaway node must not make the log unreadable, and a record that
+        # was trimmed without saying so is worse than no record.
+        fields["output"] = output[:MAX_EVENT_OUTPUT]
+        fields["output_truncated_from"] = len(output)
+    record = {
+        "at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+        "event": event,
+        **fields,
+    }
+    with (run_dir / EVENT_LOG).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\\n")
+
+
 APPROVALS = ("y", "yes", "approve", "approved")
 REJECTIONS = ("n", "no", "reject", "rejected")
 
@@ -268,6 +302,8 @@ def write_decision(run_dir, node_id, *, label, detail, context, approved,
     (Path(run_dir) / f"{node_id}.decision.json").write_text(
         json.dumps(record, indent=2) + "\\n", encoding="utf-8"
     )
+    log_event(run_dir, "decision", node=node_id, approved=approved,
+              answer=verdict, mode=mode)
     return record
 
 
@@ -325,6 +361,8 @@ def ask_human(label, detail, context_path, *, node_id="decision"):
 
     print(f"\\n=== {label} ===\\n{detail}\\nContext: {context_path}\\n")
     if not sys.stdin.isatty():
+        log_event(run_dir, "park", node=node_id, waiting_for="human",
+                  exit_code=NEEDS_HUMAN)
         print(unattended, file=sys.stderr)
         raise SystemExit(NEEDS_HUMAN)
     try:
@@ -380,7 +418,8 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from runner import Result, ask_human, delegating, run_agent, run_step
+from runner import (Result, ask_human, delegating, log_event, run_agent,
+                    run_step)
 
 HERE = Path(__file__).parent
 ENTRY = {entry!r}
@@ -607,12 +646,23 @@ def drive(ctx: Context, start: str) -> int:
             resuming = True
             log(f"resuming at {current} (attempt {attempts[current]})")
 
+    log_event(ctx.run_dir, "run_resumed" if resuming else "run_start",
+              node=current, delegate=delegating(), budget=BUDGET_AGENT_CALLS,
+              spent=spend)
+
     while current:
         node = NODES[current]
         if resuming:
             resuming = False
         else:
             attempts[current] += 1
+        # Persisted before the ceiling check, not after. The attempt that
+        # exhausts a node has to be written down, or an on_exhausted of
+        # "human" parks the run before the count is ever saved — and every
+        # resume then reloads the pre-exhaustion count and runs the node
+        # again. A ceiling that resets on every pause is not a ceiling.
+        save_state(ctx, current, attempts, spend)
+
         limit = node.get("max_attempts", 1)
         bounded = current in RETRY_TARGETS
 
@@ -626,22 +676,26 @@ def drive(ctx: Context, start: str) -> int:
                 limit = node["max_attempts"]
                 log(f"  {current}: escalating to {ESCALATION_MODEL} for a final attempt")
             else:
+                code = give_up(current, ctx, limit)
+                log_event(ctx.run_dir, "run_end", node=current, code=code,
+                          reason=f"exhausted {limit} attempt(s)")
                 clear_state(ctx)
-                return give_up(current, ctx, limit)
+                return code
 
         # Checked before the call so an exhausted budget never launches one.
         if (node["kind"] == "agent" and BUDGET_AGENT_CALLS is not None
                 and spend >= BUDGET_AGENT_CALLS):
             log(f"  {current}: run budget of {BUDGET_AGENT_CALLS} agent "
                 f"call(s) is spent — stopping before this one")
+            log_event(ctx.run_dir, "budget_exhausted", node=current,
+                      spent=spend, budget=BUDGET_AGENT_CALLS)
             return budget_handoff(current, ctx, spend)
 
         suffix = f" (attempt {attempts[current]}/{limit})" if bounded else ""
         log(f"{current} [{node['kind']}] {node['label']}{suffix}")
-
-        # Written before the node runs, because a delegated node exits the
-        # process from inside run_node and this is what it resumes from.
-        save_state(ctx, current, attempts, spend)
+        log_event(ctx.run_dir, "node_start", node=current, kind=node["kind"],
+                  attempt=attempts[current], limit=limit if bounded else None,
+                  model=node.get("model"))
 
         result = run_node(current, ctx)
         # Charged on return, whatever the outcome: a call that launched and then
@@ -652,7 +706,14 @@ def drive(ctx: Context, start: str) -> int:
         # process before any model runs.
         if node["kind"] == "agent" and result.launched:
             spend += 1
+            log_event(ctx.run_dir, "budget_charged", node=current, spent=spend,
+                      budget=BUDGET_AGENT_CALLS)
         ctx.write(f"{current}.out", result.output)
+        # Recorded per attempt, which is the point: <node>.out holds only the
+        # last one, so a loop that burned its ceiling would otherwise show a
+        # single output for three different tries.
+        log_event(ctx.run_dir, "node_result", node=current, ok=result.ok,
+                  attempt=attempts[current], output=result.output)
         ctx.feedback = None
 
         # Only an otherwise-successful node is asked for proof. One that already
@@ -664,16 +725,22 @@ def drive(ctx: Context, start: str) -> int:
             shortfall = check_evidence(node, ctx)
             if shortfall:
                 log(f"  {current}: {shortfall}")
+                log_event(ctx.run_dir, "evidence_missing", node=current,
+                          artifact=node.get("evidence"), detail=shortfall)
                 result = Result(False, f"{current} {shortfall}", result.session_id)
 
         if result.ok:
             edge = next_node(current, ("always", "pass"))
             if edge is None:
                 log(f"done — {current} was terminal")
+                log_event(ctx.run_dir, "run_end", node=current, code=0,
+                          reason="terminal node reached")
                 clear_state(ctx)
                 return 0
             if edge.get("payload") and result.output:
                 ctx.write(edge["payload"], result.output)
+            log_event(ctx.run_dir, "route", **{"from": current, "to": edge["to"],
+                      "when": edge.get("when"), "payload": edge.get("payload")})
             current = edge["to"]
             continue
 
@@ -682,15 +749,22 @@ def drive(ctx: Context, start: str) -> int:
         edge = next_node(current, ("fail",))
         if edge is None:
             # Nothing to route to, so this failure ends the run.
+            code = give_up(current, ctx, limit)
+            log_event(ctx.run_dir, "run_end", node=current, code=code,
+                      reason="failure with no fail edge")
             clear_state(ctx)
-            return give_up(current, ctx, limit)
+            return code
 
         if edge.get("payload"):
             ctx.write(edge["payload"], result.output)
         # A loop edge carries the failure back as feedback rather than as a fresh task.
         ctx.feedback = result.output if edge.get("loop") else None
+        log_event(ctx.run_dir, "route", **{"from": current, "to": edge["to"],
+                  "when": "fail", "payload": edge.get("payload"),
+                  "loop": bool(edge.get("loop"))})
         current = edge["to"]
 
+    log_event(ctx.run_dir, "run_end", code=0, reason="no next node")
     clear_state(ctx)
     return 0
 

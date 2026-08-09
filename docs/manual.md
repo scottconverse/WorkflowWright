@@ -436,6 +436,7 @@ Everything a run did lands in the run directory as ordinary files:
 
 | File | What it records |
 |---|---|
+| `run.jsonl` | Append-only event log: one JSON object per line, every attempt kept |
 | `driver-state.json` | Live position: current node, attempts per node, pending feedback, budget spent |
 | `driver-state.final.json` | The same, retired when the run ends — the receipt for a finished run |
 | `<node>.out` | Every node's output, whether it succeeded or failed |
@@ -445,12 +446,37 @@ Everything a run did lands in the run directory as ordinary files:
 | `<node>.answer.consumed.md` | The written answer behind that decision |
 | named payloads | Every artifact that travelled an edge |
 
-Two limits worth knowing before you rely on it. **Retries overwrite**: `<node>.out`,
-`<node>.prompt.md`, and the `.consumed` files keep only the most recent attempt, so you
-can audit where a run ended up but not everything it tried. And nothing here is
-tamper-evident — these are plain files with no hashing or append-only guarantee. It is
-a forensic trail for understanding a run, not an attestation you could hand to an
-auditor who distrusts the machine that wrote it.
+**`run.jsonl` is the one that keeps everything.** The other files hold only the latest
+of each thing — `<node>.out`, `<node>.prompt.md`, and the `.consumed` files are
+overwritten on every retry — which loses exactly what you want when a bounded loop
+burns its ceiling: what changed between attempt two and attempt three. The event log
+keeps every attempt with its own output.
+
+One object per line, each with a UTC timestamp and an `event` type:
+
+| Event | When |
+|---|---|
+| `run_start` / `run_resumed` | A process begins, fresh or picking up a paused run |
+| `node_start` | A node is entered, with its attempt number and ceiling |
+| `node_result` | A node finished, with its full output — one per actual execution |
+| `evidence_missing` | A node reported success without its declared artifact |
+| `route` | An edge was followed, with the condition and payload |
+| `budget_charged` / `budget_exhausted` | An agent call was paid for, or the ceiling was hit |
+| `decision` | A human gate was answered |
+| `park` | The run paused for an agent or a person |
+| `run_end` | The run finished, with its exit code and why |
+
+Because it is opened for append and never for write, it survives the process death at
+every delegated pause. Reading it is `python -c "import json;[print(json.loads(l)) for
+l in open('run/run.jsonl')]"` or `jq -c . run/run.jsonl`.
+
+Node output is capped at 20,000 characters per event; a trimmed record carries
+`output_truncated_from` with the original length, so a truncation never passes for a
+complete record.
+
+One limit remains: **nothing here is tamper-evident.** These are plain files with no
+hashing and no signature. It is a forensic trail for understanding a run, not an
+attestation you could hand to someone who distrusts the machine that wrote it.
 
 ## Writing good prompts and steps
 

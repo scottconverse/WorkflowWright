@@ -786,6 +786,168 @@ class TestEvidenceGates(ScaffoldCase):
         self.assertIn("shipped", (run_dir / "ship.out").read_text(encoding="utf-8"))
 
 
+class TestEventLog(ScaffoldCase):
+    """An append-only record of what a run actually did, attempt by attempt.
+
+    The run directory keeps only the latest of everything: <node>.out and
+    <node>.prompt.md are overwritten on each retry. That loses precisely the
+    thing worth seeing when a bounded loop burns its ceiling — what changed
+    between attempt two and attempt three. The event log keeps every one.
+    """
+
+    def events(self, run_dir):
+        path = run_dir / "run.jsonl"
+        self.assertTrue(path.exists(), "the run left no event log")
+        out = []
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                self.fail(f"line {i} of run.jsonl is not valid JSON: {exc}")
+        return out
+
+    def loop_pkg(self, work, check):
+        spec = loop_spec()
+        return self.build(spec, steps={
+            "work": work, "check": check, "ship": "echo shipped\n"})
+
+    def test_every_line_is_valid_json_with_a_timestamp_and_a_type(self):
+        pkg = self.loop_pkg("echo made it\n", "exit 0\n")
+        run_dir = self.dir / "run"
+        run_workflow(pkg, run_dir, workdir=pkg)
+        events = self.events(run_dir)
+        self.assertTrue(events, "no events recorded")
+        for e in events:
+            self.assertIn("at", e)
+            self.assertIn("event", e)
+
+    def test_every_attempt_is_preserved_not_just_the_last(self):
+        """The whole reason this exists. Three attempts must leave three
+        records with their own outputs, where the run directory keeps one."""
+        counter = ('n=$(cat "$PWD/n" 2>/dev/null || echo 0); n=$((n+1)); '
+                   'echo $n > "$PWD/n"; echo "attempt $n output"\n')
+        pkg = self.loop_pkg(counter, 'echo "REJECTED"; exit 1\n')
+        run_dir = self.dir / "run"
+        run_workflow(pkg, run_dir, workdir=pkg)
+
+        results = [e for e in self.events(run_dir)
+                   if e["event"] == "node_result" and e.get("node") == "work"]
+        self.assertEqual(len(results), 3, f"max_attempts=3\n{results}")
+        outputs = [r.get("output", "") for r in results]
+        for n in (1, 2, 3):
+            self.assertTrue(any(f"attempt {n} output" in o for o in outputs),
+                            f"attempt {n}'s output is missing\n{outputs}")
+        # The run directory itself kept only the last one, which is the gap.
+        self.assertIn("attempt 3", (run_dir / "work.out").read_text(encoding="utf-8"))
+
+    def test_the_log_appends_across_delegate_pauses(self):
+        """Each pause is a new process. Opening the log for writing rather than
+        appending would silently discard everything before the pause."""
+        pkg = self.build(TestAgentInvocation.agent_spec(self), steps={
+            "judge": "exit 0\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "brief.md").write_text("Build a widget.", encoding="utf-8")
+
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        first = len(self.events(run_dir))
+        self.assertTrue(any(e["event"] == "park" for e in self.events(run_dir)))
+
+        (run_dir / "gen.result.md").write_text("the draft", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        after = self.events(run_dir)
+        self.assertGreater(len(after), first, "the second process truncated the log")
+        self.assertTrue(any(e["event"] == "run_end" for e in after))
+
+    def test_an_evidence_failure_names_the_artifact_in_the_log(self):
+        spec = loop_spec()
+        for node in spec["nodes"]:
+            if node["id"] == "work":
+                node["evidence"] = "proof.txt"
+        # Evidence turns a missing artifact into a node failure, so the
+        # validator requires somewhere for that failure to go.
+        spec["edges"].append({"from": "work", "to": "work", "when": "fail",
+                              "payload": "shortfall.txt", "loop": True})
+        pkg = self.build(spec, steps={
+            "work": "echo did nothing\n", "check": "exit 0\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_workflow(pkg, run_dir, workdir=pkg)
+        evidence = [e for e in self.events(run_dir) if e["event"] == "evidence_missing"]
+        self.assertTrue(evidence, "an evidence failure left no event")
+        self.assertEqual(evidence[0].get("artifact"), "proof.txt")
+
+    def test_a_human_decision_is_recorded_in_the_log(self):
+        spec = TestHumanGateDelegation.gate_spec(self)
+        for node in spec["nodes"]:
+            if node["id"] == "prep":
+                node["max_attempts"] = 2
+                node["on_exhausted"] = "fail"
+        pkg = self.build(spec, steps={
+            "prep": "echo prepared\n", "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        (run_dir / "approve.answer.md").write_text("yes\nlooks right", encoding="utf-8")
+        run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+        decisions = [e for e in self.events(run_dir) if e["event"] == "decision"]
+        self.assertTrue(decisions, "the gate decision is not in the log")
+        self.assertTrue(decisions[0].get("approved"))
+
+    def test_exhausting_into_a_human_gate_does_not_loop_forever(self):
+        """Regression, found by reading the event log of a real run.
+
+        The attempt counter was persisted after the ceiling check, so the
+        attempt that exhausted a node was never written down. With
+        on_exhausted "human" the run then parked before reaching the save, and
+        every resume reloaded the pre-exhaustion count and re-ran the node —
+        forever, charging the budget each time while the budget total also
+        reset. A ceiling that resets on every pause is not a ceiling."""
+        spec = loop_spec()
+        for node in spec["nodes"]:
+            if node["id"] == "work":
+                node["kind"] = "agent"
+                node["model"] = "sonnet"
+                node["max_attempts"] = 2
+                node["on_exhausted"] = "human"
+                node.pop("detail", None)
+                node["detail"] = "produce the thing"
+        pkg = self.build(spec, steps={"check": 'echo no; exit 1\n',
+                                      "ship": "echo shipped\n"})
+        run_dir = self.dir / "run"
+
+        codes = []
+        for _ in range(6):
+            code, _ = run_workflow(pkg, run_dir, workdir=pkg, delegate=True)
+            codes.append(code)
+            answer = run_dir / "work.result.md"
+            if (run_dir / "work.prompt.md").exists() and not answer.exists():
+                answer.write_text("an attempt", encoding="utf-8")
+
+        # node_result only fires when the node actually ran to completion, so
+        # it counts executions; node_start also fires on a resume that then
+        # parks again without executing anything.
+        ran = [e for e in self.events(run_dir)
+               if e["event"] == "node_result" and e.get("node") == "work"]
+        self.assertLessEqual(
+            len(ran), 2,
+            f"work executed {len(ran)} times against max_attempts=2; codes={codes}")
+        self.assertEqual(codes[-1], 75, f"should settle parked at the gate: {codes}")
+
+    def test_enormous_output_is_truncated_and_says_so(self):
+        """A runaway node must not make the log unreadable, and a truncated
+        record that does not admit it is worse than none."""
+        pkg = self.loop_pkg('python -c "print(\'x\' * 60000)"\n', "exit 0\n")
+        run_dir = self.dir / "run"
+        run_workflow(pkg, run_dir, workdir=pkg)
+        results = [e for e in self.events(run_dir)
+                   if e["event"] == "node_result" and e.get("node") == "work"]
+        self.assertTrue(results)
+        rec = results[0]
+        self.assertLess(len(rec.get("output", "")), 60000)
+        self.assertGreaterEqual(rec.get("output_truncated_from", 0), 60000)
+
+
 class TestBackwardCompatibility(ScaffoldCase):
     """A spec written before evidence, budget, and decision records existed must
     behave exactly as it did then.
