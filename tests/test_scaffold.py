@@ -6,8 +6,10 @@ this generator. They are exercised here against a stub CLI, so no credentials, n
 or token spend is involved.
 """
 
+import ast
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -786,6 +788,63 @@ class TestEvidenceGates(ScaffoldCase):
         code, out = run_workflow(pkg, run_dir, workdir=pkg)
         self.assertEqual(code, 0, out)
         self.assertIn("shipped", (run_dir / "ship.out").read_text(encoding="utf-8"))
+
+
+class TestPackageDocumentsItself(ScaffoldCase):
+    """The generated README must describe every interface the package accepts.
+
+    This is the one documentation-drift check that can be mechanical, because both
+    sides are generated from the same file: whatever `workflow.py` grows an argument
+    for, and whatever `runner.py` reads from the environment, is knowable by parsing
+    them. Everything else about keeping docs true is a matter of noticing.
+
+    It earns its place. The package README shipped without `--delegate` or
+    `--run-dir` while the runner's own park messages ended by telling the reader to
+    "run this workflow again with the same --run-dir" -- an instruction the document
+    beside it could not explain.
+    """
+
+    def package(self):
+        pkg = self.build(loop_spec())
+        return (pkg, (pkg / "README.md").read_text(encoding="utf-8"))
+
+    @staticmethod
+    def calls(path, callee, prefix):
+        """First string argument of every `callee(...)` in a file, matching prefix.
+
+        Parsed rather than grepped. A regex anchored to `add_argument("` reads only
+        the flags written on one line, and `--delegate` is written across three --
+        so the first version of this test reported full coverage while missing the
+        single most important flag in the file. A check that can be silently
+        incomplete is the thing it was written to prevent.
+        """
+        tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+        found = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+            if name != callee or not node.args:
+                continue
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str) \
+                    and first.value.startswith(prefix):
+                found.add(first.value)
+        return sorted(found)
+
+    def test_every_flag_the_workflow_accepts_is_in_the_readme(self):
+        pkg, readme = self.package()
+        flags = self.calls(pkg / "workflow.py", "add_argument", "--")
+        self.assertIn("--delegate", flags, "the parse missed a multi-line argument")
+        missing = [f for f in flags if f not in readme]
+        self.assertEqual(missing, [], f"undocumented in the package README: {missing}")
+
+    def test_every_environment_knob_the_runner_reads_is_in_the_readme(self):
+        pkg, readme = self.package()
+        knobs = self.calls(pkg / "runner.py", "get", "WORKFLOW_")
+        self.assertTrue(knobs, "found no knobs to check; the parse is wrong")
+        missing = [k for k in knobs if k not in readme]
+        self.assertEqual(missing, [], f"undocumented in the package README: {missing}")
 
 
 class TestEventLog(ScaffoldCase):

@@ -1285,13 +1285,34 @@ edit the spec and regenerate rather than editing outputs by hand.
 
 ```bash
 python3 workflow.py                  # full run
+python3 workflow.py --delegate       # park at each agent node instead of spawning a CLI
 python3 workflow.py --only {sample}   # one node against the last run's payloads
 python3 workflow.py --from {sample}   # resume partway through
 python3 workflow.py --report         # summarise past runs; reads only, runs nothing
+python3 workflow.py --run-dir ./run  # where payloads and the event log live
+python3 workflow.py --workdir ..     # where steps and agents actually execute
+python3 workflow.py --report --runs ./runs   # report against a different run root
 ```
 
 `--only` is the reason payloads are files rather than variables: you can rerun one
 node against a fixed input instead of replaying the whole workflow to reach it.
+
+**`--delegate` is the mode to use if you are reading this from inside an assistant
+rather than a terminal.** Instead of spawning an agent CLI, the run stops at each agent
+node, writes the fully composed prompt to `<run-dir>/<node>.prompt.md`, and exits 76.
+You do that work, save the answer to `<node>.result.md` beside it, and run the same
+command again with the same `--run-dir` to continue. Human gates work the same way
+through `<node>.decision.md` and `<node>.answer.md`, exiting 75. Attempt counts, the
+retry ceiling and the budget all persist across the pause, so parking costs nothing and
+neither mode can quietly get more retries than the spec allows. `WORKFLOW_DELEGATE=1` is
+the same switch from the environment.
+
+**`--run-dir` is the flag those park messages mean when they say "the same
+`--run-dir`".** It defaults to `runs/latest`. Every payload, prompt, decision, output
+and the append-only `run.jsonl` land there, so pointing a run at a fresh directory keeps
+its record separate, and pointing a resumed run at the previous one is what lets it pick
+up where it stopped. `--workdir` is different and independent: it is where step scripts
+and agents actually execute, defaulting to the current directory.
 
 `--report` reads every `run.jsonl` under `runs/` and counts runs, attempts, successes,
 failures and missing evidence per node, grouped by the backend each node ran on. One
@@ -1324,6 +1345,8 @@ Environment variables, all optional:
 - `WORKFLOW_OPENAI_MAX_TOKENS` (default 4096) for `openai-compat` nodes. Raise it if
   a reasoning-style self-hosted model returns nothing: those spend hidden thinking
   tokens before any visible output.
+- `WORKFLOW_DELEGATE` (unset). Set to `1` for delegate mode; the same switch as
+  `--delegate`, so a shell that always wants it can export it once.
 - `WORKFLOW_BASH` (Windows only: which bash runs the step scripts)
 
 ## A note on the shape
