@@ -549,10 +549,12 @@
         something readable behind.</p>
       </li>
       <li>
-        <h3>Prompts travel on stdin, never argv</h3>
+        <h3>Prompts travel on stdin wherever stdin is read</h3>
         <p>They carry whole payload files. Windows caps a command line at 8191 characters
         through <code>cmd.exe</code> shims, which also truncate at the first newline —
-        silently, so the agent answers a fragment and the run still looks fine.</p>
+        silently, so the agent answers a fragment and the run still looks fine. One
+        backend, Antigravity, ignores stdin; there the prompt goes on the command line
+        and an oversized one is <em>refused</em> rather than quietly cut in half.</p>
       </li>
     </ol>
   </section>
@@ -568,8 +570,9 @@
       <div class="panel">
         <h3>Subprocess <span class="kind k-code" style="margin-left:6px">default</span></h3>
         <p style="font-size:15px;color:var(--muted);margin:10px 0 0">Each agent node
-        spawns an agent CLI, and the run goes start to finish on its own. What you want
-        from a terminal, from CI, or from cron.</p>
+        spawns the system its <code>backend</code> names — Claude, Codex, Antigravity, or
+        an OpenAI-compatible endpoint — and the run goes start to finish on its own. What
+        you want from a terminal, from CI, or from cron.</p>
       </div>
       <div class="panel">
         <h3>Delegate <span class="kind k-agent" style="margin-left:6px">--delegate</span></h3>
@@ -652,10 +655,10 @@ make test   <span class="t-dim"># 96 tests, no network</span></pre>
     <p class="eyebrow">Status and limits</p>
     <h2>What this is not, yet</h2>
     <div class="prose">
-      <p>New and openly developed, with a real test suite: 51 stdlib tests covering the
-      validator, the renderer, and the generated driver's retry and session behaviour,
-      running on Python 3.10–3.13 on Linux and on Windows. No releases have been tagged
-      yet.</p>
+      <p>New and openly developed, with a real test suite: 140 stdlib tests covering the
+      validator, the renderer, the backend adapter, and the generated driver's retry and
+      session behaviour, running on Python 3.10–3.14 on Linux and on Windows. Released at
+      v0.1.0.</p>
     </div>
     <ul class="limits" style="max-width:64ch">
       <li><b>The scaffold is a skeleton.</b> Every generated step exits 1 with a TODO until
@@ -664,13 +667,17 @@ make test   <span class="t-dim"># 96 tests, no network</span></pre>
       <code>worktree</code> or <code>sandbox</code> and the docs reason about the choice,
       but the generated code does not create worktrees or containers. That belongs in your
       intake step.</li>
-      <li><b>Running a workflow <em>unattended</em> needs the <code>claude</code> CLI</b>
-      on PATH. Designing, rendering, critiquing, and scaffolding never call a model at
-      all, and <code>--delegate</code> runs a workflow with no CLI involved.</li>
+      <li><b>Running a workflow <em>unattended</em> needs whichever CLI its nodes name</b>
+      on PATH — <code>claude</code>, <code>codex</code>, <code>agy</code>, or a reachable
+      OpenAI-compatible endpoint. Designing, rendering, critiquing, and scaffolding never
+      call a model at all, and <code>--delegate</code> runs a workflow with no CLI
+      involved.</li>
       <li><b>Offline diagrams need Playwright.</b> Without it, rendered artifacts fall back
       to loading Mermaid from a CDN and need network access to draw.</li>
-      <li><b>The agent invocation is Claude-shaped.</b> Swapping in another CLI or an SDK
-      means editing one function, <code>run_agent</code>, in <code>runner.py</code>.</li>
+      <li><b>Anything past those four backends means writing code.</b> A node picks its
+      system with a <code>backend</code> field rather than an edit, but reaching a fifth
+      one — an SDK, a bespoke service — still means changing <code>run_agent</code> in
+      <code>runner.py</code>, the single place the workflow leaves the Python process.</li>
     </ul>
   </section>
 

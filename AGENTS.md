@@ -81,21 +81,29 @@ an exit code — so any agent in any host can drive a workflow without the host 
 anything about WorkflowWright. Routing, retry ceilings, evidence gates, and the run
 budget are enforced by the driver either way; only the model call moves.
 
-## What does not work outside Claude Code
+## What used to not work outside Claude Code
+
+Both entries on this list have been retired, so it is kept as a record of what was
+checked rather than as a list of limitations.
 
 **Nothing about triggering, if the host has a skills directory.** The frontmatter
 `description` is written for skill-selection and Codex uses the same convention, so it
 triggers on natural phrasing there too. Only a host with no skills mechanism at all
 needs you to name the file.
 
-**Unattended subprocess mode.** Without `--delegate`, the runner shells out to an agent
-CLI using Claude's flag vocabulary (`-p`, `--output-format json`, `--permission-mode`,
-`--resume`) and parses Claude's JSON response envelope. `WORKFLOW_AGENT_CLI` swaps the
-command but not the protocol, so pointing it at a different CLI fails on the response
-shape rather than the command. Adapting it means editing `run_agent` in the generated
-`runner.py`, which is the single place the workflow leaves the Python process.
+**Nothing about unattended runs, either, once the node says which system runs it.**
+This used to be the limitation on this list, and it is not one any more. An agent node
+carries a `backend` — `claude` (the default), `codex`, `agy`, or `openai-compat` with an
+`endpoint` — and the runner speaks each one's own vocabulary and parses its own reply
+shape. `WORKFLOW_CODEX_CLI` and `WORKFLOW_AGY_CLI` point at the binaries, which matters
+because Antigravity is usually not on PATH.
 
-That adapter is not built. It would be untested speculation until someone actually
-runs this against another CLI — the same reasoning as
-[ADR 0001](docs/adr/0001-loopx-compile-target-deferred.md). If you are that someone,
-open an issue and say which CLI; that is the trigger to build it properly.
+Two facts about those CLIs were established by running them rather than by reading
+about them, and both are load-bearing: Codex takes its prompt on stdin via `-` and
+resumes by session id, while **Antigravity ignores stdin entirely** — its prompt goes on
+the command line, so it alone keeps an argv ceiling and refuses an oversized prompt
+rather than letting the OS truncate one into a confident answer to half a question.
+
+So a workflow runs unattended under Codex or Antigravity by naming that backend in the
+spec, with no edit to any generated file. `skill/references/spec-schema.md` has the
+field reference and the reasoning about where each payload ends up.

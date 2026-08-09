@@ -200,7 +200,7 @@ script, or a better prompt, and the skill will tell you so.
 ## Requirements
 
 - **Python 3.10+**, standard library only — no third-party packages. CI runs the
-  suite on 3.10–3.13 on Linux and 3.13 on Windows.
+  suite on 3.10–3.14 on Linux and 3.13 on Windows.
 - **Playwright** (optional) — with it, rendered HTML artifacts embed the diagram as
   inline SVG and work offline, in sandboxed viewers, and forever; without it, the
   HTML falls back to loading Mermaid from a CDN and needs network access to draw.

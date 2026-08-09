@@ -92,7 +92,10 @@ The full method is in `references/design-method.md`. Read it. In summary:
 2. **Cut the walkthrough into nodes** at boundaries where the resource changes, the
    needed context changes, you would want to inspect the intermediate result, or you
    would want to retry just that part.
-3. **Assign each node** using the heuristic above.
+3. **Assign each node** using the heuristic above, and for agent nodes also say *which
+   system runs it* — `backend` is `claude`, `codex`, `agy`, or `openai-compat` with an
+   `endpoint`. No one system reaches every model and they bill to different meters, so
+   this is a design decision rather than an installation detail.
 4. **Name what travels on every edge.** If you can't name it, the edge carries an
    assumption rather than data, and it breaks the first time a node is retried or
    isolated.
@@ -158,12 +161,22 @@ rather than a cold restart, it writes every payload to a run directory so
 `--only <node>` can rerun one node against a fixed input, and it sends prompts on stdin
 rather than argv, which have hard length ceilings and silently truncate on Windows.
 
-### Two ways to run agent nodes
+### Two ways to run agent nodes, and four systems to run them on
 
 By default each agent node spawns an agent CLI, which is what an unattended run from a
 terminal, CI, or cron wants. `python3 workflow.py --delegate` instead parks at each agent
 node, writes the composed prompt to the run directory, and resumes when an answer file
 appears beside it.
+
+Which system a node calls is the node's `backend`, set in the spec and not in code:
+`claude` (the default), `codex`, `agy`, or `openai-compat` with an `endpoint` URL. The
+driver speaks each one's vocabulary and parses its reply shape; routing, retry ceilings,
+payloads, evidence and the budget are unchanged whichever it is. Two things to carry
+into a design: **`agy` takes its prompt on the command line and ignores stdin**, so an
+oversized prompt is refused rather than truncated — route large payloads elsewhere; and
+**`openai-compat` is spelled for the protocol, not for "local"**, because the endpoint is
+a URL and privacy comes from that address being loopback, never from the model being
+self-hosted. See `references/spec-schema.md`.
 
 Recommend delegate mode whenever the user works inside an assistant rather than a shell —
 Claude Code, Cowork, the desktop and web clients, or any other agent host. It needs no CLI
@@ -180,9 +193,19 @@ scaffold is a skeleton with honest TODOs — don't describe it as working until 
 actually do something. Prompts are where a well-structured workflow still goes wrong, so
 if you write them, make them specific.
 
-To swap the agent invocation for an SDK or a different CLI, change `run_agent` in
-`runner.py`; `WORKFLOW_AGENT_CLI` already substitutes the command itself, which is enough
-for a mock in tests. Nothing else touches the outside world.
+To send a node to a different system, set its `backend` in the spec and regenerate — do
+not edit `runner.py`, which is overwritten every time. Editing it is only for a system
+none of the four backends covers; `run_agent` is the one place the workflow leaves the
+Python process, and `WORKFLOW_AGENT_CLI`, `WORKFLOW_CODEX_CLI` and `WORKFLOW_AGY_CLI`
+substitute the commands themselves, which is enough for a mock in tests.
+
+### Reading past runs back
+
+`python3 workflow.py --report` reads every `run.jsonl` under `runs/` and prints runs,
+attempts, successes, failures and missing evidence per node, grouped by the backend it
+ran on. One run cannot tell you a node is unreliable; twenty can. It reports and does
+not route — what to do about a node that keeps failing is a person's decision, and it
+belongs in `spec.json`. Suggest it once a workflow has a handful of runs behind it.
 
 ---
 
