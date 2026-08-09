@@ -23,7 +23,7 @@ generated from the same source.
 
 | Field | Required | Notes |
 |---|---|---|
-| `name` | yes | Lowercase, hyphenated. Used for output filenames and the scaffold package name. |
+| `name` | yes | Lowercase, hyphenated. Used for output filenames and the scaffold package name, so it must be usable as one: letters, digits, dots, dashes and underscores only, starting with a letter or digit. |
 | `goal` | yes | One sentence. What comes out the far end. |
 | `trigger` | yes | What starts a run. Be specific — "a ticket moves to Ready", not "when work is needed". |
 | `isolation` | yes | `worktree`, `sandbox`, or `none`. See below. |

@@ -200,6 +200,37 @@ class TestBudgetField(unittest.TestCase):
         self.assertTrue(any("budget" in p for p in rw.validate(spec)))
 
 
+class TestNamesAreUsableAsPaths(unittest.TestCase):
+    """`name` and every node `id` become filenames, so they decide where output
+    goes. A name of `../../docs/index` put the renderer's three files outside
+    the directory `--out` named, over whatever was already there under those
+    suffixes -- which made `--out` a suggestion rather than a boundary.
+    """
+
+    def test_a_name_that_walks_out_of_the_output_directory_is_refused(self):
+        for name in ("../canary/pwned", "..\\canary\\pwned", "/tmp/abs",
+                     "C:/tmp/abs", "..", ".", "a/b", ""):
+            with self.subTest(name=name):
+                spec = valid_spec()
+                spec["name"] = name
+                self.assertTrue(any("not usable as a filename" in p or "is empty" in p
+                                    for p in rw.validate(spec)),
+                                f"accepted {name!r}")
+
+    def test_a_node_id_that_walks_out_is_refused(self):
+        for node_id in ("../../pwned", "/tmp/abs", "a/b", ".."):
+            with self.subTest(node_id=node_id):
+                spec = valid_spec()
+                spec["nodes"][0]["id"] = node_id
+                self.assertTrue(any("Node id" in p for p in rw.validate(spec)),
+                                f"accepted {node_id!r}")
+
+    def test_ordinary_names_and_ids_still_pass(self):
+        spec = valid_spec()
+        spec["name"] = "ticket-to-pr_v2.1"
+        self.assertEqual(rw.validate(spec), [])
+
+
 class TestMaxAttemptsType(unittest.TestCase):
     """A retry ceiling that is not a number is a reported problem, not a crash.
 

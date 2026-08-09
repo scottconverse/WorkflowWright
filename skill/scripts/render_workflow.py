@@ -89,6 +89,31 @@ def backend_of(node):
     return node.get("backend") or "claude"
 
 
+SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def unsafe_name(value):
+    """Why this cannot be part of a filename, or '' if it can.
+
+    `name` and every node `id` are used to build paths -- `<name>.html`,
+    `steps/<id>.sh` -- so a spec decides where a renderer and a scaffolder
+    write. A name of `../../docs/index` put three files outside the directory
+    `--out` named, overwriting whatever was there under those suffixes. `--out`
+    is supposed to be the boundary; without this it was a suggestion.
+
+    Deliberately a whitelist. Blacklisting separators means remembering `/`,
+    `\\`, `..`, a bare `.`, drive letters, NUL, and whatever the next platform
+    adds; the set of characters that belong in these fields is small and dull.
+    """
+    text = str(value)
+    if not text:
+        return "is empty"
+    if not SAFE_NAME.match(text):
+        return (f"{text!r} is not usable as a filename. Use letters, digits, "
+                "dots, dashes and underscores, starting with a letter or digit.")
+    return ""
+
+
 def cell(text):
     """Spec text, safe to put in a markdown table cell.
 
@@ -129,6 +154,16 @@ def validate(spec):
 
     if len(nodes) != len(spec["nodes"]):
         problems.append("Duplicate node ids - every node needs a unique id.")
+
+    # Checked first: both of these become paths, and a path is decided before
+    # any other problem in the spec matters.
+    reason = unsafe_name(spec["name"])
+    if reason:
+        problems.append(f"Spec name {reason}")
+    for node in spec["nodes"]:
+        reason = unsafe_name(node.get("id", ""))
+        if reason:
+            problems.append(f"Node id {reason}")
 
     if spec["entry"] not in nodes:
         problems.append(f"entry '{spec['entry']}' is not a node id.")
@@ -853,6 +888,16 @@ def main():
 
     spec = load_spec(args.spec)
     problems = validate(spec)
+
+    # Stops before writing, unlike every other problem, which is reported *in*
+    # the rendered outputs so a work-in-progress design still renders with its
+    # holes visible. That cannot apply here: the name decides where the files
+    # go, so rendering the complaint would mean writing it wherever the bad
+    # name pointed.
+    reason = unsafe_name(spec["name"])
+    if reason:
+        sys.exit(f"refusing to render: spec name {reason}")
+
     mermaid = build_mermaid(spec)
 
     svg = None if args.no_prerender else prerender_svg(mermaid)
