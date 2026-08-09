@@ -89,6 +89,23 @@ def backend_of(node):
     return node.get("backend") or "claude"
 
 
+def attempts_of(node):
+    """max_attempts as a whole number, or None if it is absent or is not one.
+
+    Every site that compares this goes through here. A hand-written spec can put
+    anything in the field, and a string is the likely one -- JSON makes quoting a
+    number a one-character mistake -- which turned `attempts <= 1` into a
+    TypeError in the validator itself, before it could report the problem.
+
+    `bool` is excluded deliberately: it subclasses int in Python, so `true` would
+    otherwise pass as the number 1 and read as a declared ceiling of one attempt.
+    """
+    value = node.get("max_attempts")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
 def validate(spec):
     """Return a list of human-readable problems. Structural errors, not style notes."""
     problems = []
@@ -242,12 +259,26 @@ def validate(spec):
     # every entry costs a person's attention and halts the run until they act.
     # Requiring a ceiling there forces a meaningless number onto exactly the
     # escalation paths this design wants to encourage.
+    # Reported before anything compares it, because every reader of this field
+    # does. `"max_attempts": "3"` -- a number that picked up quotes, the easy
+    # JSON typo -- reached `attempts <= 1` and came back as a TypeError
+    # traceback rather than as a problem with the spec. A tool whose whole
+    # promise is refusing a bad spec with reasons should not be one of the
+    # things that crashes on one.
+    for node in spec["nodes"]:
+        if node.get("max_attempts") is not None and attempts_of(node) is None:
+            problems.append(
+                f"Node '{node['id']}' has max_attempts "
+                f"{node['max_attempts']!r}, which is not a whole number. "
+                "Write it unquoted, e.g. 3."
+            )
+
     for edge in spec["edges"]:
         if edge.get("when") == "fail" and edge.get("to") in nodes:
             target = nodes[edge["to"]]
             if target.get("kind") == "human":
                 continue
-            if not target.get("max_attempts") or target["max_attempts"] < 1:
+            if not attempts_of(target) or attempts_of(target) < 1:
                 problems.append(
                     f"Node '{target['id']}' is the target of a retry edge but has no "
                     "max_attempts. Unbounded retries against a paid API are the one "
@@ -296,8 +327,8 @@ def build_mermaid(spec):
         label = mm_escape(node["label"])
         if kind == "agent" and node.get("model"):
             label += f"<br/>{mm_escape(node['model'])}"
-        if node.get("max_attempts", 1) > 1:
-            label += f"<br/>max {node['max_attempts']} attempts"
+        if (attempts_of(node) or 1) > 1:
+            label += f"<br/>max {attempts_of(node)} attempts"
         if node.get("evidence"):
             label += f"<br/>proves: {mm_escape(node['evidence'])}"
         lines.append(
@@ -373,7 +404,7 @@ def build_markdown(spec, mermaid, problems):
     w("|---|---|---|---|---|---|")
     for n in nodes:
         model = n.get("model") or ("—" if n.get("kind") != "agent" else "default")
-        attempts = n.get("max_attempts", 1)
+        attempts = attempts_of(n) or 1
         retry = "—" if attempts <= 1 else f"{attempts}, then {n.get('on_exhausted', 'fail')}"
         detail = str(n.get("detail", "")).replace("|", "\\|")
         evidence = f"`{n['evidence']}`" if n.get("evidence") else "—"
@@ -706,7 +737,7 @@ def build_html(spec, mermaid, problems, spec_path, svg=None):
     for n in spec["nodes"]:
         kind = n.get("kind", "code")
         model = n.get("model") or ("&mdash;" if kind != "agent" else "default")
-        attempts = n.get("max_attempts", 1)
+        attempts = attempts_of(n) or 1
         retry = (
             '<span class="muted">&mdash;</span>'
             if attempts <= 1
@@ -751,7 +782,15 @@ def build_html(spec, mermaid, problems, spec_path, svg=None):
     if svg:
         diagram, script, init = svg, "", ""
     else:
-        diagram = f'<div class="mermaid">{mermaid}</div>'
+        # Escaped like every other field on this page, and for a sharper reason.
+        # Mermaid reads this div's textContent, and the HTML parser decodes
+        # entities back into text -- so escaping costs the diagram nothing. Left
+        # raw, a node label containing a <script> tag became a real script
+        # element the moment the page was opened, because the HTML parser runs
+        # long before Mermaid does. These artifacts exist to be handed to other
+        # people, and critique mode builds specs out of material the author did
+        # not write, so "the spec is trusted" is not an assumption to hold here.
+        diagram = f'<div class="mermaid">{esc(mermaid)}</div>'
         script = f'<script src="{MERMAID_URL}"></script>'
         init = (
             "<script>mermaid.initialize({startOnLoad:true,securityLevel:'loose',"

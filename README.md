@@ -223,7 +223,7 @@ script, or a better prompt, and the skill will tell you so.
 
 ## Tests
 
-145 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
+150 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
 
 ```sh
 python -m unittest discover -s tests

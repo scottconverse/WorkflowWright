@@ -116,6 +116,43 @@ class TestOutputs(unittest.TestCase):
         self.assertNotIn("<script>alert", html)
         self.assertIn("&lt;script&gt;", html)
 
+    def test_no_spec_field_can_put_a_script_tag_in_the_artifact(self):
+        """Every field, not one of them -- which is how the hole stayed open.
+
+        The test above escapes `goal`, and `goal` reaches the page through the
+        same esc() call as everything else in the replacements table, so it
+        proved the part that already worked. A node `label` takes a second
+        route: into the Mermaid source, which was interpolated into
+        `<div class="mermaid">` raw. A browser parses that div before Mermaid
+        ever runs, so the tag became a live script element on open -- confirmed
+        executing in headless Chromium, not inferred.
+
+        These artifacts are made to be handed to other people, and critique mode
+        reconstructs specs from scripts and CI configs the author did not write,
+        so the spec is not automatically trusted input.
+        """
+        payload = "<script>alert(1)</script>"
+        spec = valid_spec()
+        spec["goal"] = f"goal {payload}"
+        spec["trigger"] = f"trigger {payload}"
+        spec["open_questions"] = [f"question {payload}"]
+        for node in spec["nodes"]:
+            node["label"] = f"{node['label']} {payload}"
+            node["detail"] = f"{node['detail']} {payload}"
+        for edge in spec["edges"]:
+            edge["payload"] = f"pay{payload}"
+
+        self.render(write_spec(self.out, spec), "--no-prerender")
+        html = (self.out / "fixture.html").read_text(encoding="utf-8")
+
+        self.assertNotIn(payload, html,
+                         "a spec field reached the artifact as live markup")
+        self.assertNotIn("<script>alert", html)
+        # Still a real page: the escaped text is present and the diagram block
+        # was written, so this is escaping rather than stripping.
+        self.assertIn("&lt;script&gt;", html)
+        self.assertIn('class="mermaid"', html)
+
 
 @unittest.skipUnless(
     __import__("importlib").util.find_spec("playwright"),

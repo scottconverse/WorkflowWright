@@ -200,5 +200,39 @@ class TestBudgetField(unittest.TestCase):
         self.assertTrue(any("budget" in p for p in rw.validate(spec)))
 
 
+class TestMaxAttemptsType(unittest.TestCase):
+    """A retry ceiling that is not a number is a reported problem, not a crash.
+
+    `"max_attempts": "3"` is a one-character JSON mistake and it used to reach
+    `attempts <= 1` inside the validator, which raised TypeError before any
+    problem could be reported -- so the tool whose promise is refusing a bad
+    spec with reasons was itself one of the things that crashed on one.
+    """
+
+    def spec_with(self, value):
+        spec = valid_spec()
+        spec["nodes"][0]["max_attempts"] = value
+        return spec
+
+    def test_a_number_in_quotes_is_reported_rather_than_raised(self):
+        problems = rw.validate(self.spec_with("3"))
+        self.assertTrue(any("not a whole number" in p for p in problems), problems)
+
+    def test_every_wrong_type_is_reported_rather_than_raised(self):
+        for value in ("<script>alert(1)</script>", 2.5, [1, 2], {"n": 1}, True):
+            with self.subTest(value=value):
+                problems = rw.validate(self.spec_with(value))
+                self.assertTrue(any("not a whole number" in p for p in problems),
+                                problems)
+
+    def test_true_does_not_pass_as_a_ceiling_of_one(self):
+        """bool subclasses int, so an unguarded isinstance check reads `true`
+        as the number 1 -- a declared ceiling nobody wrote."""
+        self.assertIsNone(rw.attempts_of({"max_attempts": True}))
+
+    def test_a_whole_number_still_validates(self):
+        self.assertEqual(rw.validate(self.spec_with(3)), [])
+
+
 if __name__ == "__main__":
     unittest.main()
