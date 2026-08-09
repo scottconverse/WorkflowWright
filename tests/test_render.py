@@ -116,6 +116,37 @@ class TestOutputs(unittest.TestCase):
         self.assertNotIn("<script>alert", html)
         self.assertIn("&lt;script&gt;", html)
 
+    def test_markdown_tables_keep_their_columns(self):
+        """Ordinary content, not hostile content, was breaking the design doc.
+
+        "Fetch ticket | create worktree" is a reasonable `detail`, and a pipe
+        splits a markdown row into extra columns. A multi-line detail is
+        reasonable too, and a newline ends the row outright, leaving the table
+        visibly broken from there down. `detail` was escaped for pipes and not
+        for newlines; `model` and `on_exhausted` were escaped for neither.
+        """
+        escaped_pipe = "\\|"
+
+        def column_counts(spec):
+            self.render(write_spec(self.out, spec), "--no-prerender")
+            md = (self.out / "fixture-design.md").read_text(encoding="utf-8")
+            return sorted({line.replace(escaped_pipe, "").count("|")
+                           for line in md.splitlines() if line.startswith("|")})
+
+        baseline = column_counts(valid_spec())
+
+        for label, field, value in [
+            ("detail, pipe", "detail", "Fetch | create"),
+            ("detail, newline", "detail", "line one\nline two"),
+            ("model, pipe", "model", "m | n"),
+            ("on_exhausted, pipe", "on_exhausted", "fail | x"),
+        ]:
+            with self.subTest(case=label):
+                spec = valid_spec()
+                spec["nodes"][0][field] = value
+                self.assertEqual(column_counts(spec), baseline,
+                                 "a spec field split or ended a table row")
+
     def test_no_spec_field_can_put_a_script_tag_in_the_artifact(self):
         """Every field, not one of them -- which is how the hole stayed open.
 

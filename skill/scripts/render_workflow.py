@@ -89,6 +89,22 @@ def backend_of(node):
     return node.get("backend") or "claude"
 
 
+def cell(text):
+    """Spec text, safe to put in a markdown table cell.
+
+    Two ways a cell escapes its column, and both come from ordinary content
+    rather than hostile content. A `|` splits the row into more columns --
+    "Fetch ticket | create worktree" is a reasonable thing to write in a
+    `detail`. A newline ends the row outright, and a multi-line detail is
+    reasonable too; that one leaves a table visibly broken from that row down.
+
+    Newlines become spaces because a markdown table cell has no way to hold a
+    line break, and `<br>` would be HTML in a document that otherwise is not.
+    """
+    flat = " ".join(str(text).split())
+    return flat.replace("|", "\\|")
+
+
 def attempts_of(node):
     """max_attempts as a whole number, or None if it is absent or is not one.
 
@@ -403,12 +419,14 @@ def build_markdown(spec, mermaid, problems):
     w("| Node | Who | What | Model | Retries | Proves it worked |")
     w("|---|---|---|---|---|---|")
     for n in nodes:
-        model = n.get("model") or ("—" if n.get("kind") != "agent" else "default")
+        model = cell(n.get("model") or ("—" if n.get("kind") != "agent" else "default"))
         attempts = attempts_of(n) or 1
-        retry = "—" if attempts <= 1 else f"{attempts}, then {n.get('on_exhausted', 'fail')}"
-        detail = str(n.get("detail", "")).replace("|", "\\|")
-        evidence = f"`{n['evidence']}`" if n.get("evidence") else "—"
-        w(f"| `{n['id']}` | {KIND_LABEL.get(n.get('kind'), n.get('kind', '?'))} | {detail} | {model} | {retry} | {evidence} |")
+        retry = ("—" if attempts <= 1
+                 else f"{attempts}, then {cell(n.get('on_exhausted', 'fail'))}")
+        detail = cell(n.get("detail", ""))
+        evidence = f"`{cell(n['evidence'])}`" if n.get("evidence") else "—"
+        w(f"| `{cell(n['id'])}` | {KIND_LABEL.get(n.get('kind'), cell(n.get('kind', '?')))} "
+          f"| {detail} | {model} | {retry} | {evidence} |")
     w("")
 
     if any(n.get("evidence") for n in nodes):
@@ -424,10 +442,11 @@ def build_markdown(spec, mermaid, problems):
     w("| From | Condition | Carries | To |")
     w("|---|---|---|---|")
     for e in spec["edges"]:
-        cond = e.get("when", "always")
+        cond = cell(e.get("when", "always"))
         if e.get("loop"):
             cond += " (loop)"
-        w(f"| `{e['from']}` | {cond} | `{e.get('payload', '—')}` | `{e['to']}` |")
+        w(f"| `{cell(e['from'])}` | {cond} | `{cell(e.get('payload', '—'))}` "
+          f"| `{cell(e['to'])}` |")
     w("")
 
     human_nodes = [n for n in nodes if n.get("kind") == "human"]
@@ -456,11 +475,11 @@ def build_markdown(spec, mermaid, problems):
         w("|---|---|---|---|---|")
         leaves_machine = []
         for n in agent_nodes:
-            tools = ", ".join(f"`{t}`" for t in n.get("tools", [])) or "all"
-            backend = backend_of(n)
+            tools = ", ".join(f"`{cell(t)}`" for t in n.get("tools", [])) or "all"
+            backend = cell(backend_of(n))
             endpoint = n.get("endpoint")
             if endpoint:
-                host = endpoint_host(endpoint) or endpoint
+                host = cell(endpoint_host(endpoint) or endpoint)
                 if endpoint_is_local(endpoint):
                     destination = f"this machine (`{host}`)"
                 else:
@@ -474,8 +493,8 @@ def build_markdown(spec, mermaid, problems):
                 destination = "Google (Antigravity)"
             else:
                 destination = "—"
-            w(f"| `{n['id']}` | {backend} | {n.get('model', 'default')} | {tools} "
-              f"| {destination} |")
+            w(f"| `{cell(n['id'])}` | {backend} | {cell(n.get('model', 'default'))} "
+              f"| {tools} | {destination} |")
         w("")
         if leaves_machine:
             named = ", ".join(f"`{nid}` to `{host}`" for nid, host in leaves_machine)
