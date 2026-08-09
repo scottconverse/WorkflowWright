@@ -164,6 +164,17 @@ def validate(spec):
         reason = unsafe_name(node.get("id", ""))
         if reason:
             problems.append(f"Node id {reason}")
+        if node.get("evidence"):
+            reason = unsafe_name(node["evidence"])
+            if reason:
+                problems.append(f"Node '{node['id']}' evidence {reason}")
+    for edge in spec["edges"]:
+        if edge.get("payload"):
+            reason = unsafe_name(edge["payload"])
+            if reason:
+                problems.append(
+                    f"Edge {edge.get('from')} -> {edge.get('to')} payload {reason}"
+                )
 
     if spec["entry"] not in nodes:
         problems.append(f"entry '{spec['entry']}' is not a node id.")

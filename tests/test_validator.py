@@ -225,6 +225,29 @@ class TestNamesAreUsableAsPaths(unittest.TestCase):
                 self.assertTrue(any("Node id" in p for p in rw.validate(spec)),
                                 f"accepted {node_id!r}")
 
+    def test_every_field_that_becomes_a_path_is_checked(self):
+        """One sweep over all four, not one probe at a time.
+
+        Doing it the other way is how this took four passes to find: the spec
+        name, then node ids, then edge payloads, then node evidence, each
+        surfacing only after the previous one was fixed. They are the same
+        field for this purpose -- a string the tool turns into a path.
+        """
+        hostile = ["../escape.txt", "..\\escape.txt", "/tmp/abs.txt", "C:/abs.txt",
+                   "a/b.txt", "..", "."]
+        setters = {
+            "spec name": lambda s, v: s.__setitem__("name", v),
+            "edge payload": lambda s, v: s["edges"][0].__setitem__("payload", v),
+            "node evidence": lambda s, v: s["nodes"][0].__setitem__("evidence", v),
+        }
+        for field, setter in setters.items():
+            for value in hostile:
+                with self.subTest(field=field, value=value):
+                    spec = valid_spec()
+                    setter(spec, value)
+                    self.assertTrue(rw.validate(spec),
+                                    f"{field} accepted {value!r} as a path")
+
     def test_ordinary_names_and_ids_still_pass(self):
         spec = valid_spec()
         spec["name"] = "ticket-to-pr_v2.1"

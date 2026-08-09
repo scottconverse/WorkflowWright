@@ -751,12 +751,33 @@ class Context:
         self.feedback: str | None = None
         run_dir.mkdir(parents=True, exist_ok=True)
 
+    def _path(self, name: str) -> Path:
+        """A payload path, guaranteed to be inside the run directory.
+
+        Payload and evidence names come from the spec, and `run_dir / name`
+        follows `..` wherever it leads: a payload called
+        `../../../etc/thing` wrote a node's output there. The validator
+        refuses such a name now, but the check is repeated here on purpose.
+        The validator runs when a package is *generated* and this runs when
+        one is *run*, and the two are separated by a copied directory, a
+        hand-edited spec, and however long the package sits on disk.
+        """
+        path = (self.run_dir / name).resolve()
+        root = self.run_dir.resolve()
+        if path != root and root not in path.parents:
+            raise SystemExit(
+                f"refusing to touch {name!r}: it resolves outside the run "
+                f"directory ({path}). Payload and evidence names are file "
+                "names, not paths."
+            )
+        return path
+
     def read(self, name: str) -> str:
-        path = self.run_dir / name
+        path = self._path(name)
         return path.read_text(encoding="utf-8") if path.exists() else ""
 
     def write(self, name: str, text: str) -> None:
-        path = self.run_dir / name
+        path = self._path(name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 

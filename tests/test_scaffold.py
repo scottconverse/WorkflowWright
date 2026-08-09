@@ -840,6 +840,27 @@ class TestSpecTextStaysData(ScaffoldCase):
                 self.assertNotIn("echo INJECTED", live,
                                  f"spec text became a command:\n{script}")
 
+    def test_a_payload_name_cannot_write_outside_the_run_directory(self):
+        """Checked again at run time, on purpose.
+
+        The validator refuses a traversing payload name when a package is
+        *generated*. This runs when one is *run*, and the two are separated by
+        a copied directory, a hand-edited workflow.py, and however long the
+        package sat on disk. The write is the last place that can still say no.
+        """
+        pkg = self.build(loop_spec(), steps={"work": "echo hello\n",
+                                             "check": "exit 0\n", "ship": "exit 0\n"})
+        source = (pkg / "workflow.py").read_text(encoding="utf-8")
+        (pkg / "workflow.py").write_text(
+            source.replace("'work.log'", "'../../../escaped.txt'"), encoding="utf-8")
+        canary = self.dir / "escaped.txt"
+
+        code, out = run_workflow(pkg, self.dir / "runs" / "r1", workdir=pkg)
+
+        self.assertFalse(canary.exists(), "a payload name wrote outside the run dir")
+        self.assertIn("refusing to touch", out)
+        self.assertNotEqual(code, 0)
+
     def test_the_generated_node_table_is_pure_data(self):
         """NODES is written with pprint, so it is a literal. Pinning that means
         a future switch to string building has to argue with a test first."""
