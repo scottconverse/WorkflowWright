@@ -100,6 +100,41 @@ class AcrossRuns(ReportCase):
         self.assertRegex(out, r"note: check on \S+ failed \d+ of \d+ attempts "
                               r"across \d+ run\(s\)\.")
 
+    def test_a_line_that_parses_but_is_not_a_record_does_not_stop_the_report(self):
+        """Valid JSON is not the same as a record, and the difference crashed it.
+
+        A line holding a list, a bare string, a number or a null parses cleanly
+        and then fails on the line that stamps the run name onto it; a node or
+        backend arriving as a list fails later still, on "unhashable type". Eight
+        shapes in all, every one of them a traceback out of the function whose
+        docstring promises to survive a damaged log -- and since this reads every
+        run beneath the root, one bad line in one stale directory took the report
+        for every other run with it.
+        """
+        pkg = self.build(self.spec(), steps={"check": "exit 0\n", "ship": "exit 0\n"})
+        runs = self.dir / "runs"
+        run_workflow(pkg, runs / "good", workdir=pkg,
+                     agent_cli=make_stub_claude(self.dir / "stub"))
+
+        junk = runs / "damaged"
+        junk.mkdir(parents=True, exist_ok=True)
+        (junk / "run.jsonl").write_text(
+            '[1,2,3]\n'
+            '"a string"\n'
+            '42\n'
+            'null\n'
+            'true\n'
+            '{"event":"node_result","node":["a"],"ok":true}\n'
+            '{"event":"node_result","node":{"x":1},"ok":true}\n'
+            '{"event":"node_start","node":"a","backend":["x"]}\n',
+            encoding="utf-8")
+
+        out = self.report(pkg, "--runs", str(runs))
+
+        # The good run is still reported, which is the point: one damaged file
+        # must not cost the information in every other one.
+        self.assertIn("make", out)
+
     def test_a_truncated_log_does_not_stop_the_report(self):
         """A killed run leaves a half-written last line. That is exactly when
         somebody wants the report, so it must not be what prevents it."""

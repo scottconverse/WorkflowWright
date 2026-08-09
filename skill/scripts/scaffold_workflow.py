@@ -1102,6 +1102,13 @@ def read_events(runs_root):
                 record = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(record, dict):
+                # Valid JSON is not the same as a record. A line holding a list,
+                # a bare string or a number parses fine and then fails on the
+                # next line down, which turned "tolerant of a damaged log" into
+                # a traceback -- and because this reads every run under the root,
+                # one bad line in one old directory took the whole report with it.
+                continue
             record["run"] = run_name
             events.append(record)
     return events
@@ -1113,10 +1120,14 @@ def summarise(events):
     backends = {}
     for event in events:
         node = event.get("node")
-        if not node:
+        # A string, specifically. These become dictionary keys, so a node or a
+        # backend arriving as a list or an object is not merely odd data -- it
+        # raises "unhashable type" and ends the report.
+        if not isinstance(node, str) or not node:
             continue
-        if event.get("event") == "node_start" and event.get("backend"):
-            backends[node] = event["backend"]
+        backend = event.get("backend")
+        if event.get("event") == "node_start" and isinstance(backend, str) and backend:
+            backends[node] = backend
         key = (node, backends.get(node) or "-")
         row = stats.setdefault(key, {"attempts": 0, "ok": 0, "failed": 0,
                                      "evidence_missing": 0, "runs": set()})
