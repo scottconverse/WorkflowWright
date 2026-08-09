@@ -53,6 +53,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,6 +79,25 @@ PERMISSION_MODE = os.environ.get("WORKFLOW_PERMISSION_MODE", "acceptEdits")
 # CLI can be swapped in without editing this file. Split with shlex so the
 # override may carry its own arguments, e.g. "python /path/to/stub.py".
 AGENT_CLI = shlex.split(os.environ.get("WORKFLOW_AGENT_CLI", "claude")) or ["claude"]
+
+# The other backends, overridable the same way. Antigravity in particular is
+# usually not on PATH -- on Windows it installs to %LOCALAPPDATA%\\agy\\bin.
+CODEX_CLI = shlex.split(os.environ.get("WORKFLOW_CODEX_CLI", "codex")) or ["codex"]
+AGY_CLI = shlex.split(os.environ.get("WORKFLOW_AGY_CLI", "agy")) or ["agy"]
+
+# read-only by default. Codex's own default is workspace-write with approvals
+# off, which edits files without asking -- not a thing to inherit silently in a
+# workflow whose whole premise is that each node's effects are declared.
+CODEX_SANDBOX = os.environ.get("WORKFLOW_CODEX_SANDBOX", "read-only")
+
+# Antigravity takes its prompt as a command-line argument and ignores stdin, so
+# it alone is bounded by the OS command-line limit. Set well under the 32767
+# Windows ceiling to leave room for the rest of the argv.
+AGY_PROMPT_LIMIT = int(os.environ.get("WORKFLOW_AGY_PROMPT_LIMIT", "28000"))
+
+# Self-hosted reasoning models spend hidden thinking tokens before any visible
+# output, so a small ceiling returns an empty reply rather than a short one.
+OPENAI_COMPAT_MAX_TOKENS = int(os.environ.get("WORKFLOW_OPENAI_MAX_TOKENS", "4096"))
 
 NEEDS_HUMAN = 75  # EX_TEMPFAIL: the run is not wrong, it is waiting on a person
 NEEDS_AGENT = 76  # likewise, waiting on a delegated agent node
@@ -164,7 +185,38 @@ def delegate_agent(prompt, *, node_id, run_dir, model=None, tools=None):
 
 
 def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None,
-              node_id=None, run_dir=None):
+              node_id=None, run_dir=None, backend=None, endpoint=None):
+    """Send one node's prompt to whichever system runs it.
+
+    Four backends, because no single one reaches every model and they are billed to
+    different meters. The choice is per node and lives in the spec; everything else
+    about a run -- routing, retry ceilings, payloads, the budget -- is identical
+    whichever way this dispatches, because all of that lives in the driver rather
+    than here.
+
+    Delegate mode short-circuits every backend. When a person is doing the agent
+    nodes there is no CLI to pick.
+    """
+    if delegating():
+        return delegate_agent(
+            prompt, node_id=node_id, run_dir=run_dir, model=model, tools=tools
+        )
+
+    backend = backend or "claude"
+    if backend == "claude":
+        return _run_claude(prompt, session_id=session_id, model=model, tools=tools,
+                           cwd=cwd)
+    if backend == "codex":
+        return _run_codex(prompt, session_id=session_id, model=model, cwd=cwd,
+                          run_dir=run_dir, node_id=node_id)
+    if backend == "agy":
+        return _run_agy(prompt, session_id=session_id, model=model, cwd=cwd)
+    if backend == "openai-compat":
+        return _run_openai_compat(prompt, model=model, endpoint=endpoint)
+    return Result(False, f"unknown backend {backend!r}", session_id, launched=False)
+
+
+def _run_claude(prompt, *, session_id=None, model=None, tools=None, cwd=None):
     """Invoke an agent as a subprocess and return its result plus session id.
 
     Resuming matters on retries. A producer that just failed already holds the context
@@ -172,11 +224,6 @@ def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None,
     Starting a fresh session throws away the former to deliver the latter, and usually
     produces a different first mistake rather than a fix.
     """
-    if delegating():
-        return delegate_agent(
-            prompt, node_id=node_id, run_dir=run_dir, model=model, tools=tools
-        )
-
     cmd = [*AGENT_CLI, "-p", "--output-format", "json", "--permission-mode", PERMISSION_MODE]
     if session_id:
         cmd += ["--resume", session_id]
@@ -213,6 +260,226 @@ def run_agent(prompt, *, session_id=None, model=None, tools=None, cwd=None,
     if proc.returncode != 0 or data.get("is_error"):
         return Result(False, text or proc.stderr.strip(), new_session)
     return Result(True, text, new_session)
+
+
+def _spawn(cmd, prompt, *, cwd, name):
+    """Run a backend CLI with the prompt on stdin, or report why it could not.
+
+    Separated from every backend's own parsing because the three failures that are
+    not about the reply -- timeout, missing CLI, no output -- read the same for all
+    of them, and only the missing-CLI case must avoid charging the budget.
+    """
+    try:
+        proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
+                              cwd=cwd, timeout=AGENT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None, Result(False, f"{name} exceeded {AGENT_TIMEOUT}s timeout")
+    except FileNotFoundError:
+        return None, Result(False, f"the `{cmd[0]}` CLI is not on PATH", None,
+                            launched=False)
+    return proc, None
+
+
+def _find_session_id(text):
+    """Best effort: pull a session id out of Codex's JSONL event stream.
+
+    The event schema is not part of Codex's documented contract, so this looks for
+    any of the plausible keys at any depth rather than pinning one shape. Failing to
+    find one is not an error -- the retry simply starts cold, still carrying the
+    feedback payload that says what went wrong, which is the larger half of what a
+    resume would have given it.
+    """
+    keys = ("session_id", "conversation_id", "thread_id")
+
+    def walk(obj):
+        if isinstance(obj, dict):
+            for key in keys:
+                value = obj.get(key)
+                if isinstance(value, str) and value:
+                    return value
+            for value in obj.values():
+                found = walk(value)
+                if found:
+                    return found
+        elif isinstance(obj, list):
+            for item in obj:
+                found = walk(item)
+                if found:
+                    return found
+        return None
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            found = walk(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+        if found:
+            return found
+    return None
+
+
+def _run_codex(prompt, *, session_id=None, model=None, cwd=None, run_dir=None,
+               node_id=None):
+    """Run a node on the Codex CLI, billed to the OpenAI account.
+
+    The prompt goes on stdin via the `-` argument, and the reply comes back through
+    --output-last-message rather than by parsing the JSONL event stream: the final
+    message is the only part of that stream this needs, and reading it from a file
+    means a schema change upstream cannot quietly alter what a node returns.
+    """
+    target = Path(run_dir) if run_dir else Path(cwd or ".")
+    target.mkdir(parents=True, exist_ok=True)
+    last = target / f"{node_id or 'agent'}.codex-last.txt"
+    last.unlink(missing_ok=True)
+
+    cmd = [*CODEX_CLI, "exec"]
+    if session_id:
+        # resume takes the id positionally, before the prompt.
+        cmd += ["resume"]
+    if model:
+        cmd += ["-m", model]
+    cmd += ["-s", CODEX_SANDBOX, "--skip-git-repo-check", "--json",
+            "--output-last-message", str(last)]
+    if session_id:
+        cmd += [session_id]
+    cmd += ["-"]
+
+    proc, failure = _spawn(cmd, prompt, cwd=cwd, name="codex")
+    if failure:
+        return failure
+
+    text = ""
+    if last.is_file():
+        text = last.read_text(encoding="utf-8", errors="replace").strip()
+    new_session = _find_session_id(proc.stdout) or session_id
+
+    if proc.returncode != 0:
+        return Result(False, text or proc.stderr.strip() or "codex failed",
+                      new_session)
+    if not text:
+        return Result(False, proc.stderr.strip() or "codex produced no final message",
+                      new_session)
+    return Result(True, text, new_session)
+
+
+def _run_agy(prompt, *, session_id=None, model=None, cwd=None):
+    """Run a node on Antigravity, which reaches Gemini and GPT-OSS.
+
+    Antigravity takes its prompt as an argument and ignores stdin -- verified, not
+    assumed. That reintroduces the command-line ceiling every other path here avoids,
+    so an oversized prompt is refused outright. A truncated prompt would return a
+    confident answer to a question that was cut in half, which is the failure this
+    whole design exists to prevent; refusing costs a run and explains itself.
+    """
+    if len(prompt) > AGY_PROMPT_LIMIT:
+        return Result(
+            False,
+            f"prompt is {len(prompt)} characters and Antigravity takes it on the "
+            f"command line, which caps out near {AGY_PROMPT_LIMIT}. It would be "
+            "truncated silently. Route this node to a backend that reads stdin "
+            "(claude, codex) or shrink what the incoming edges carry.",
+            session_id, launched=False,
+        )
+
+    cmd = [*AGY_CLI, "-p", prompt, "--output-format", "json"]
+    if model:
+        cmd += ["--model", model]
+    if session_id:
+        cmd += ["--conversation", session_id]
+
+    proc, failure = _spawn(cmd, "", cwd=cwd, name="agy")
+    if failure:
+        return failure
+
+    if not proc.stdout.strip():
+        return Result(False, proc.stderr.strip() or "agy produced no output",
+                      session_id)
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return Result(False, f"unparseable agy output: {proc.stdout[:500]}", session_id)
+
+    new_session = data.get("conversation_id") or session_id
+    text = str(data.get("response", "")).strip()
+    if proc.returncode != 0 or data.get("status") not in (None, "SUCCESS"):
+        return Result(False, text or f"agy status {data.get('status')!r}", new_session)
+    if not text:
+        return Result(False, "agy returned an empty response", new_session)
+    return Result(True, text, new_session)
+
+
+def _post_json(url, payload):
+    """POST a JSON body and return (status, decoded-body-or-None, error-text)."""
+    request = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"),
+        headers={"content-type": "application/json",
+                 "anthropic-version": "2023-06-01"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=AGENT_TIMEOUT) as response:
+            return response.status, json.loads(response.read().decode("utf-8")), ""
+    except urllib.error.HTTPError as exc:
+        return exc.code, None, exc.read().decode("utf-8", "replace")[:500]
+    except urllib.error.URLError as exc:
+        return 0, None, str(exc.reason)
+    except json.JSONDecodeError as exc:
+        return 0, None, f"reply was not JSON ({exc})"
+
+
+def _run_openai_compat(prompt, *, model=None, endpoint=None):
+    """Call an OpenAI-compatible server directly over HTTP.
+
+    Tries the Anthropic-format path first and falls back to the OpenAI one on the
+    three statuses that all mean "this server does not serve that path". No session
+    resume: these endpoints are stateless, so a retry carries its context in the
+    feedback payload instead.
+
+    There is no privacy check here on purpose. Whether this endpoint is loopback or a
+    machine across the room is a decision made in the spec, and the design doc names
+    where every payload goes -- enforcing it at call time would be too late to be a
+    decision at all.
+    """
+    if not endpoint:
+        return Result(False, "no endpoint configured for an openai-compat node",
+                      None, launched=False)
+    base = endpoint.rstrip("/")
+    body = {"model": model or "default", "max_tokens": OPENAI_COMPAT_MAX_TOKENS,
+            "messages": [{"role": "user", "content": prompt}]}
+
+    status, data, error = _post_json(f"{base}/v1/messages", body)
+    if status in (404, 405, 501):
+        status, data, error = _post_json(f"{base}/v1/chat/completions", body)
+
+    if status != 200 or data is None:
+        detail = error or f"HTTP {status}"
+        launched = status != 0  # a connection that never opened cost nothing
+        return Result(False, f"{base}: {detail}", None, launched=launched)
+
+    if "content" in data:  # Anthropic shape
+        blocks = data["content"] if isinstance(data["content"], list) else []
+        text = "".join(b.get("text", "") for b in blocks
+                       if isinstance(b, dict) and b.get("type") == "text")
+    elif "choices" in data:  # OpenAI shape
+        try:
+            text = data["choices"][0]["message"]["content"] or ""
+        except (IndexError, KeyError, TypeError) as exc:
+            return Result(False, f"malformed OpenAI-format reply ({exc})", None)
+    else:
+        return Result(False, f"unrecognized reply shape (keys: "
+                             f"{', '.join(sorted(data))})", None)
+
+    if not text.strip():
+        # A reasoning-style model spends hidden tokens before any visible output, so
+        # an empty reply usually means the ceiling was too low. Never report it as a
+        # success: a batch caller recording "" as an answer is the silent kind of
+        # wrong.
+        return Result(False, "server replied 200 with no visible text - raise "
+                             "WORKFLOW_OPENAI_MAX_TOKENS", None)
+    return Result(True, text.strip(), None)
 
 
 def run_step(script, *, cwd=None):
@@ -520,6 +787,8 @@ def run_node(node_id: str, ctx: Context) -> Result:
             cwd=ctx.workdir,
             node_id=node_id,
             run_dir=ctx.run_dir,
+            backend=node.get("backend"),
+            endpoint=node.get("endpoint"),
         )
         if result.session_id:
             ctx.sessions[node_id] = result.session_id

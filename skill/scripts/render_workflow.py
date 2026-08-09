@@ -20,6 +20,24 @@ from pathlib import Path
 KINDS = ("code", "agent", "human")
 KIND_LABEL = {"code": "Code", "agent": "Agent", "human": "Human"}
 
+# Which system runs an agent node. No single one reaches every model, so the
+# choice is about capability and about which meter the call is billed to, not
+# only about quality.
+#
+# `openai-compat` is spelled for the protocol rather than for "local", because
+# the endpoint is a URL and a URL does not have to be this machine. Pointing it
+# at a bigger box on the network is a supported and useful thing to do -- and it
+# means the privacy property comes from the address being loopback, never from
+# the word "local". See endpoint_is_local().
+BACKENDS = ("claude", "codex", "agy", "openai-compat")
+
+# Only the OpenAI-compatible backend is addressed by URL. The others are CLIs
+# that already know where they are pointed, and accepting an endpoint for them
+# would imply a redirection that does not exist.
+ENDPOINT_BACKENDS = ("openai-compat",)
+
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1", "[::1]")
+
 MERMAID_VERSION = "10.9.1"
 MERMAID_URL = (
     f"https://cdnjs.cloudflare.com/ajax/libs/mermaid/{MERMAID_VERSION}/mermaid.min.js"
@@ -45,6 +63,32 @@ def load_spec(path):
 # ----------------------------------------------------------------------- validate
 
 
+def endpoint_host(endpoint):
+    """The host part of an endpoint URL, or '' if it cannot be read as one."""
+    if not isinstance(endpoint, str):
+        return ""
+    match = re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://(\[[^\]]+\]|[^/:?#]+)", endpoint.strip())
+    return match.group(1).lower() if match else ""
+
+
+def endpoint_is_local(endpoint):
+    """True only for loopback. A LAN address is a third party, whatever we call it.
+
+    This is the distinction the word "local" hides: `call_local.sh` and every
+    OpenAI-compatible server take a base URL and will happily POST anywhere. The
+    prompt stays on the machine because the address is loopback, not because the
+    backend is named local -- so an endpoint on another box carries the payload
+    off this machine exactly like a cloud API does, and the design doc has to say
+    so where somebody reviewing the workflow will read it.
+    """
+    return endpoint_host(endpoint) in LOOPBACK_HOSTS
+
+
+def backend_of(node):
+    """The backend an agent node runs on. Absent means the default, Claude."""
+    return node.get("backend") or "claude"
+
+
 def validate(spec):
     """Return a list of human-readable problems. Structural errors, not style notes."""
     problems = []
@@ -67,8 +111,58 @@ def validate(spec):
                 f"Node '{node['id']}' is kind '{node.get('kind')}' but specifies a model. "
                 "Only agent nodes run a model."
             )
+        for field in ("backend", "endpoint"):
+            if node.get("kind") != "agent" and node.get(field):
+                problems.append(
+                    f"Node '{node['id']}' is kind '{node.get('kind')}' but specifies "
+                    f"{field}. Only agent nodes call a model."
+                )
 
     fails_from = {e.get("from") for e in spec["edges"] if e.get("when") == "fail"}
+    fails_to = {e.get("to") for e in spec["edges"] if e.get("when") == "fail"}
+
+    for node in spec["nodes"]:
+        if node.get("kind") != "agent":
+            continue
+        backend = node.get("backend")
+        if backend is not None and backend not in BACKENDS:
+            problems.append(
+                f"Node '{node['id']}' has backend {backend!r}; must be one of "
+                f"{', '.join(BACKENDS)}."
+            )
+            continue
+
+        endpoint = node.get("endpoint")
+        resolved = backend_of(node)
+        if resolved in ENDPOINT_BACKENDS and not endpoint:
+            problems.append(
+                f"Node '{node['id']}' uses backend '{resolved}' but names no endpoint. "
+                'An OpenAI-compatible backend is addressed by URL, e.g. '
+                '"http://localhost:11434".'
+            )
+        elif endpoint and resolved not in ENDPOINT_BACKENDS:
+            problems.append(
+                f"Node '{node['id']}' names an endpoint but runs on '{resolved}', "
+                "which is a CLI and already knows where it points. An endpoint here "
+                "would imply a redirection that does not happen."
+            )
+        elif endpoint and not endpoint_host(endpoint):
+            problems.append(
+                f"Node '{node['id']}' has endpoint {endpoint!r}, which is not a URL. "
+                'Give a scheme and host, e.g. "http://192.168.1.50:11434".'
+            )
+
+        # A small local model's output is raw material, not a result. Measured on
+        # this class of model: nine false positives in ten findings on a code
+        # audit. Something downstream has to be able to reject it, and "able to
+        # reject it" is exactly what being the target of a fail edge means.
+        if resolved in ENDPOINT_BACKENDS and node["id"] not in fails_to:
+            problems.append(
+                f"Node '{node['id']}' runs on a self-hosted model but nothing can "
+                "reject its output: no fail edge routes back to it. That output "
+                "would ship unreviewed. Add a separate check node whose fail edge "
+                "returns here."
+            )
     for node in spec["nodes"]:
         evidence = node.get("evidence")
         if evidence is None:
@@ -327,12 +421,40 @@ def build_markdown(spec, mermaid, problems):
     agent_nodes = [n for n in nodes if n.get("kind") == "agent"]
     if agent_nodes:
         w("## Model and tool allocation\n")
-        w("| Node | Model | Tools |")
-        w("|---|---|---|")
+        w("| Node | Backend | Model | Tools | Payload goes to |")
+        w("|---|---|---|---|---|")
+        leaves_machine = []
         for n in agent_nodes:
             tools = ", ".join(f"`{t}`" for t in n.get("tools", [])) or "all"
-            w(f"| `{n['id']}` | {n.get('model', 'default')} | {tools} |")
+            backend = backend_of(n)
+            endpoint = n.get("endpoint")
+            if endpoint:
+                host = endpoint_host(endpoint) or endpoint
+                if endpoint_is_local(endpoint):
+                    destination = f"this machine (`{host}`)"
+                else:
+                    destination = f"**`{host}` — off this machine**"
+                    leaves_machine.append((n["id"], host))
+            elif backend == "claude":
+                destination = "Anthropic"
+            elif backend == "codex":
+                destination = "OpenAI"
+            elif backend == "agy":
+                destination = "Google (Antigravity)"
+            else:
+                destination = "—"
+            w(f"| `{n['id']}` | {backend} | {n.get('model', 'default')} | {tools} "
+              f"| {destination} |")
         w("")
+        if leaves_machine:
+            named = ", ".join(f"`{nid}` to `{host}`" for nid, host in leaves_machine)
+            w(
+                f"**{named}.** A self-hosted endpoint is private because its address "
+                "is loopback, not because the model is self-hosted: once the host is "
+                "another machine the payload leaves this one, and the same consent "
+                "question applies as for any third-party API. Check what those edges "
+                "carry in the Flow table above before running this.\n"
+            )
         w(
             "Scouting and planning decide what everything downstream does, so errors "
             "there propagate and get faithfully implemented — those are the nodes worth "
