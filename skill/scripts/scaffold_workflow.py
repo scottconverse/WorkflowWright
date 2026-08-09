@@ -685,8 +685,8 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from runner import (Result, ask_human, delegating, log_event, run_agent,
-                    run_step)
+from runner import (EVENT_LOG, Result, ask_human, delegating, log_event,
+                    run_agent, run_step)
 
 HERE = Path(__file__).parent
 ENTRY = {entry!r}
@@ -964,7 +964,12 @@ def drive(ctx: Context, start: str) -> int:
         log(f"{current} [{node['kind']}] {node['label']}{suffix}")
         log_event(ctx.run_dir, "node_start", node=current, kind=node["kind"],
                   attempt=attempts[current], limit=limit if bounded else None,
-                  model=node.get("model"))
+                  model=node.get("model"),
+                  # Recorded even when it is the default, so --report can group by
+                  # it without having to guess what an absent field meant in a log
+                  # written before the node's backend was changed.
+                  backend=node.get("backend", "claude") if node["kind"] == "agent"
+                  else None)
 
         result = run_node(current, ctx)
         # Charged on return, whatever the outcome: a call that launched and then
@@ -1038,10 +1043,108 @@ def drive(ctx: Context, start: str) -> int:
     return 0
 
 
+def read_events(runs_root):
+    """Every event from every run under runs_root, oldest file first.
+
+    Tolerant on purpose. A run that was killed mid-write leaves a partial last
+    line, and a report that refuses to open because of it would be useless exactly
+    when it is most wanted.
+    """
+    runs_root = Path(runs_root)
+    if not runs_root.exists():
+        return []
+    events = []
+    for log_path in sorted(runs_root.rglob(EVENT_LOG)):
+        run_name = log_path.parent.name
+        for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            record["run"] = run_name
+            events.append(record)
+    return events
+
+
+def summarise(events):
+    """Per (node, backend) counts. Plain arithmetic over the log, no inference."""
+    stats = {}
+    backends = {}
+    for event in events:
+        node = event.get("node")
+        if not node:
+            continue
+        if event.get("event") == "node_start" and event.get("backend"):
+            backends[node] = event["backend"]
+        key = (node, backends.get(node) or "-")
+        row = stats.setdefault(key, {"attempts": 0, "ok": 0, "failed": 0,
+                                     "evidence_missing": 0, "runs": set()})
+        row["runs"].add(event.get("run"))
+        if event.get("event") == "node_result":
+            row["attempts"] += 1
+            if event.get("ok"):
+                row["ok"] += 1
+            else:
+                row["failed"] += 1
+        elif event.get("event") == "evidence_missing":
+            row["evidence_missing"] += 1
+    return stats
+
+
+def report(runs_root) -> int:
+    """Say what the logs already know, and change nothing.
+
+    Deliberately diagnosis rather than routing. The numbers here are the ones that
+    would drive an automatic model choice, but a run that silently re-routes itself
+    is a different kind of program with a different set of surprises, so this
+    prints and stops. Deciding what to do about a node that fails eight times in
+    ten stays a person's job.
+    """
+    events = read_events(runs_root)
+    if not events:
+        print(f"no runs found under {runs_root}")
+        print("run the workflow at least once, then try again.")
+        return 0
+
+    stats = summarise(events)
+    runs = {e.get("run") for e in events}
+    print(f"{len(runs)} run(s) under {runs_root}")
+    print("")
+    header = f"{'node':<18} {'backend':<14} {'attempts':>8} {'ok':>5} " \
+             f"{'failed':>7} {'no evidence':>12}"
+    print(header)
+    print("-" * len(header))
+    for (node, backend), row in sorted(stats.items()):
+        if not row["attempts"]:
+            continue
+        print(f"{node:<18} {backend:<14} {row['attempts']:>8} {row['ok']:>5} "
+              f"{row['failed']:>7} {row['evidence_missing']:>12}")
+
+    worst = [((node, backend), row) for (node, backend), row in stats.items()
+             if row["attempts"] >= 3 and row["failed"] > row["ok"]]
+    if worst:
+        print("")
+        for (node, backend), row in sorted(worst):
+            print(f"note: {node} on {backend} failed {row['failed']} of "
+                  f"{row['attempts']} attempts.")
+        print("A node that fails more often than it succeeds is either mis-scoped,")
+        print("under-modelled for the work, or checked by something stricter than")
+        print("the prompt asks for. All three are worth reading the payloads over.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run-dir", default=str(HERE / "runs" / "latest"),
                     help="where payloads live")
+    ap.add_argument("--report", action="store_true",
+                    help="summarise past runs from their event logs and exit; "
+                         "reads only, runs nothing")
+    ap.add_argument("--runs", default=str(HERE / "runs"),
+                    help="directory of run directories, for --report")
     ap.add_argument("--workdir", default=".", help="where code and agents execute")
     ap.add_argument("--only", help="run a single node against existing payloads")
     ap.add_argument("--from", dest="start", help="start partway through")
@@ -1053,6 +1156,11 @@ def main() -> int:
              "the answer beside it (same as WORKFLOW_DELEGATE=1)",
     )
     args = ap.parse_args()
+
+    if args.report:
+        # Before anything touches a run directory: --report must never be able to
+        # start, resume, or disturb a run.
+        return report(args.runs)
 
     if args.delegate:
         # Set before anything reads it, so --delegate and the environment
@@ -1163,10 +1271,19 @@ edit the spec and regenerate rather than editing outputs by hand.
 python3 workflow.py                  # full run
 python3 workflow.py --only {sample}   # one node against the last run's payloads
 python3 workflow.py --from {sample}   # resume partway through
+python3 workflow.py --report         # summarise past runs; reads only, runs nothing
 ```
 
 `--only` is the reason payloads are files rather than variables: you can rerun one
 node against a fixed input instead of replaying the whole workflow to reach it.
+
+`--report` reads every `run.jsonl` under `runs/` and counts attempts, successes,
+failures and missing evidence per node, grouped by the backend each node ran on. One
+run cannot tell you a node is unreliable; twenty can. It reports rather than routes --
+the same numbers would drive an automatic model choice and deliberately do not, since
+a run that silently re-routes itself is a different kind of program. What to do about
+a node that keeps failing stays your call, and belongs in `spec.json` where the next
+reader can see it.
 
 ## Knobs
 

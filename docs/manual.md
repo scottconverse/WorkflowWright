@@ -525,6 +525,34 @@ Because it is opened for append and never for write, it survives the process dea
 every delegated pause. Reading it is `python -c "import json;[print(json.loads(l)) for
 l in open('run/run.jsonl')]"` or `jq -c . run/run.jsonl`.
 
+### Reading the logs back: `--report`
+
+One run cannot tell you a node is unreliable. Twenty can, and the workflow has been
+writing that down all along without ever reading it:
+
+```sh
+python3 workflow.py --report
+```
+
+It scans every `run.jsonl` under `runs/` and prints attempts, successes, failures and
+missing-evidence counts per node — **grouped by the backend the node ran on**, which
+is the comparison worth having once nodes can run on different systems. A node that
+fails more often than it succeeds gets called out, over at least three attempts, since
+below that it is noise.
+
+Two properties it holds to deliberately:
+
+- **It changes nothing.** No run directory is created, no parked run advances, not one
+  event is written. `--report` returns before anything touches a run.
+- **It reports; it does not route.** These are exactly the numbers that would drive an
+  automatic model choice, and they deliberately don't. A run that silently re-routes
+  itself is a different kind of program with a different set of surprises. What to do
+  about a node failing eight times in ten stays a person's decision — and once you
+  make it, it goes in `spec.json` where the next reader can see it.
+
+A half-written last line, which is what a killed run leaves, is skipped rather than
+fatal: that is precisely when somebody wants the report.
+
 Node output is capped at 20,000 characters per event; a trimmed record carries
 `output_truncated_from` with the original length, so a truncation never passes for a
 complete record.
