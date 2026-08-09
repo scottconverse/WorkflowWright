@@ -33,11 +33,12 @@ install: ## Copy the skill into ~/.claude/skills/
 	@cp -r skill/. $(SKILL_DIR)/
 	@echo "installed -> $(SKILL_DIR)"
 
+# Delegates rather than running `rm -rf $(SKILL_DIR)` here: the directory is a
+# variable, so the recipe is only ever as safe as what the variable holds, and
+# make is absent on some machines this repo is developed on -- which would put
+# the guard out of reach of the tests exactly where it matters most.
 uninstall: ## Remove the copy that `install` put in ~/.claude/skills/
-	@rm -rf $(SKILL_DIR)
-	@echo "removed -> $(SKILL_DIR)"
-	@echo "note: this removes only the local copy. A plugin install is removed with"
-	@echo "      /plugin uninstall, and an account skill in its own settings."
+	$(PY) scripts/uninstall.py $(SKILL_DIR)
 
 package: ## Build workflowwright.zip for a claude.ai account upload
 	$(PY) scripts/build_package.py
