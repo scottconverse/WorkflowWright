@@ -148,6 +148,15 @@ Four things the generated driver gets right that are easy to get wrong by hand:
   newline — silently, so the agent answers a fragment and the run looks fine. stdin
   has no ceiling and no quoting hazards on any platform.
 
+Each agent node also names **which system runs it** — `claude`, `codex`, `agy`, or any
+OpenAI-compatible server you host. No single one reaches every model and they bill to
+different accounts, so a single run can put scouting on the strongest tier available,
+the build on a second account, and mechanical work on a model that costs nothing.
+Routing, retry ceilings, evidence and the budget are identical whichever way a node
+dispatches. The design doc names where every payload goes, and says so in bold when a
+node sends one off this machine — because a self-hosted endpoint is private by virtue
+of its address being loopback, not by virtue of being self-hosted.
+
 Agent nodes run one of two ways. By default each spawns an agent CLI, which is what
 you want from a terminal, CI, or cron. With `--delegate` the run instead parks at
 each agent node, writes the composed prompt to the run directory, and continues when
@@ -202,7 +211,7 @@ script, or a better prompt, and the skill will tell you so.
 
 ## Tests
 
-96 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
+127 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
 
 ```sh
 python -m unittest discover -s tests

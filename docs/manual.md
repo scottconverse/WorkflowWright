@@ -368,6 +368,61 @@ the process boundary. Only the model call moves.
 
 Neither is the lesser path. Pick by where you work.
 
+### Choosing a backend per node
+
+In subprocess mode, a node's `backend` decides which system runs it. No single agent
+system reaches every model and they bill to different accounts, so this is a
+capability decision as much as a cost one.
+
+| `backend` | Reaches | Billed to | Prompt travels on | Resumes on retry |
+|---|---|---|---|---|
+| `claude` (default) | Claude tiers | Claude account | stdin | yes |
+| `codex` | GPT-5.x fleet | ChatGPT account | stdin | yes, by session id |
+| `agy` | Gemini, GPT-OSS 120B, Claude on a separate meter | Antigravity account | **the command line** | yes, by conversation id |
+| `openai-compat` | any Ollama- or LM-Studio-compatible server | nothing | HTTP body | no — stateless |
+
+Delegate mode ignores all of it: when a person is doing the agent nodes there is no
+CLI to pick.
+
+Three things that will bite otherwise:
+
+**Antigravity ignores stdin.** Verified, not assumed — piping a prompt in with no
+positional argument gets you an answer to a different question. So `agy` alone is
+capped by the OS command-line limit, and a prompt over `WORKFLOW_AGY_PROMPT_LIMIT`
+(28,000 characters by default) is **refused with an explanation rather than
+truncated**. A truncated prompt comes back as a confident answer to half a question,
+with a valid receipt and a zero exit status, and nothing downstream can tell. If a
+node's incoming edges carry large payloads, route it somewhere that reads stdin.
+
+**Codex defaults to editing files.** Its own default sandbox is workspace-write with
+approvals off. Generated runners pass `-s read-only` instead, overridable with
+`WORKFLOW_CODEX_SANDBOX` — inheriting "edits without asking" silently would sit badly
+in a workflow whose whole premise is that each node's effects are declared.
+
+**A self-hosted node has to be checkable.** The validator refuses an `openai-compat`
+node that no `fail` edge routes back to. Its output is raw material, not a result,
+and being the target of a fail edge is precisely the property "something downstream
+can reject this".
+
+#### "Local" is an address, not a promise
+
+The backend is called `openai-compat`, not `local`, on purpose. The endpoint is a
+URL, and a URL does not have to be this machine — pointing a node at a bigger box on
+the network is supported, and it is how you reach a model that will not fit in local
+RAM.
+
+So **the privacy property comes from the address being loopback, not from the model
+being self-hosted.** An endpoint on another host carries the payload off this machine
+exactly as a cloud API would. Nothing blocks it, because it is a legitimate choice.
+Instead the generated design doc carries a **Payload goes to** column naming the
+destination for every agent node, with the ones that leave the machine called out in
+bold — so it is visible to whoever reviews the design, while it is still a decision
+rather than a discovery.
+
+(Serving side, if you go this route: Ollama binds `127.0.0.1` by default and will not
+answer on a LAN address until it is started with `OLLAMA_HOST=0.0.0.0`. That is one
+change on the serving box, not zero.)
+
 ### The delegate loop
 
 Use it when there is no terminal to run an unattended job from — for example when

@@ -1176,6 +1176,19 @@ Environment variables, all optional:
 - `WORKFLOW_STEP_TIMEOUT` (default 3600s)
 - `WORKFLOW_PERMISSION_MODE` (default `acceptEdits`)
 - `WORKFLOW_AGENT_CLI` (default `claude`; may carry arguments, e.g. a stub for tests)
+- `WORKFLOW_CODEX_CLI` (default `codex`) and `WORKFLOW_AGY_CLI` (default `agy`) --
+  the binaries for nodes with those backends. Antigravity is usually not on PATH; on
+  Windows it installs to `%LOCALAPPDATA%\\agy\\bin\\agy.exe`.
+- `WORKFLOW_CODEX_SANDBOX` (default `read-only`). Codex's own default is
+  workspace-write with approvals off, which edits files without asking -- not
+  something to inherit silently in a workflow whose premise is that each node's
+  effects are declared.
+- `WORKFLOW_AGY_PROMPT_LIMIT` (default 28000). Antigravity takes its prompt on the
+  command line and ignores stdin, so a longer prompt is refused rather than
+  truncated.
+- `WORKFLOW_OPENAI_MAX_TOKENS` (default 4096) for `openai-compat` nodes. Raise it if
+  a reasoning-style self-hosted model returns nothing: those spend hidden thinking
+  tokens before any visible output.
 - `WORKFLOW_BASH` (Windows only: which bash runs the step scripts)
 
 ## A note on the shape

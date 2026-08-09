@@ -78,6 +78,17 @@ The classifier is often the cheapest agent in the whole system, or sometimes not
 at all — a label on the ticket may already carry the answer, in which case this is a
 `code` node.
 
+When it does need a model, this is the best candidate in the entire graph for a
+self-hosted one: routing is classification, classification is the narrow shape of work
+small models are measurably good at, and the dispatch then costs nothing so the whole
+budget goes to the work. Set `"backend": "openai-compat"` with an `endpoint`.
+
+One caveat that does not apply to the other nodes you would route locally. A bad
+summary announces itself; a bad route does not. Sending a subtle production bug down
+the chore path does not fail, it just quietly under-serves. So review a classifier's
+split across a sample of real items before trusting it, rather than checking outputs
+one at a time.
+
 **Cost:** a classification step, plus the real cost, which is maintaining N downstream
 workflows instead of one.
 **Use when:** you have at least two genuinely different kinds of work and the cheap kind

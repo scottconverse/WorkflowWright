@@ -72,11 +72,11 @@ Human touchpoints belong at intake and acceptance, plus any step whose next acti
 
 ## Model and tool allocation
 
-| Node | Model | Tools |
-|---|---|---|
-| `scout` | opus | `Read`, `Grep`, `Glob` |
-| `plan` | opus | `Read`, `Grep`, `Glob`, `Write` |
-| `build` | sonnet | all |
+| Node | Backend | Model | Tools | Payload goes to |
+|---|---|---|---|---|
+| `scout` | claude | opus | `Read`, `Grep`, `Glob` | Anthropic |
+| `plan` | claude | opus | `Read`, `Grep`, `Glob`, `Write` | Anthropic |
+| `build` | claude | sonnet | all | Anthropic |
 
 Scouting and planning decide what everything downstream does, so errors there propagate and get faithfully implemented — those are the nodes worth the strongest model. Mechanical transforms are where a cheaper tier pays off. Narrowing tools on read-only nodes is both a cost control and a safety property.
 

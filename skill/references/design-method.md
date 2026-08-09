@@ -114,6 +114,31 @@ plan looks right" is a real desire, but it is usually better served by making th
 written payload you can review after the fact than by blocking the run on synchronous
 approval.
 
+**Assign the meter too, not just the resource.** Deciding a step is agent work leaves
+a second question open: which system runs it, and whose bill it lands on. No single
+agent system reaches every model, so this is about capability as much as cost —
+Antigravity is the only route to Gemini and to Claude on a meter separate from your
+Claude quota, Codex is the only route to the GPT-5.x fleet, and a self-hosted server
+is the only one that costs nothing at all. A workable default:
+
+- **Mechanical, high-volume, checkable** — classification, tagging, format
+  conversion, first-draft commit messages — goes to a self-hosted model. It is free,
+  and a small model is genuinely good at this narrow shape of work.
+- **Judgment that something downstream will check** — building, drafting, routine
+  code changes — goes to a mid tier, or to Codex if you would rather spend that
+  account than your Claude one.
+- **Judgment nothing downstream can check** — scouting, planning, final review,
+  anything security-sensitive — stays on the strongest tier available.
+
+Record it as `backend` on the node, with `endpoint` when it is a self-hosted server.
+Two constraints the validator will hold you to, both worth understanding rather than
+working around: a self-hosted node's output must be reachable by a `fail` edge from
+something that can reject it, because a small model's output is raw material rather
+than a result; and a self-hosted endpoint is only private while its address is
+loopback. Point one at another machine and the payload leaves this one, exactly as it
+would for a cloud API. The design doc names the destination for every agent node so
+that stays visible.
+
 ## Step 4 — Name what travels on every edge
 
 For each edge, answer: what does the downstream node need, in what form, and where does it

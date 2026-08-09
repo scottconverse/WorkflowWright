@@ -82,13 +82,75 @@ is the whole point of the exercise — see the assignment heuristic in SKILL.md.
 | `label` | yes | all | Human-readable, shown in the diagram. |
 | `kind` | yes | all | `code`, `agent`, or `human`. |
 | `detail` | yes | all | For `code`, the actual command. For `agent`, the job in one or two sentences. For `human`, what the person is deciding. |
-| `model` | no | agent | `haiku`, `sonnet`, `opus`, `fable`, or a full model name. Omit to inherit the default. |
+| `backend` | no | agent | Which system runs this node: `claude` (default), `codex`, `agy`, or `openai-compat`. See below. |
+| `endpoint` | no | agent | Base URL for `openai-compat`, e.g. `"http://localhost:11434"`. Required for that backend and refused for the others. |
+| `model` | no | agent | `haiku`, `sonnet`, `opus`, `fable`, or a full model name. Omit to inherit the default. Read alongside `backend`: a model name only means something to the system that serves it. |
 | `tools` | no | agent | Allowed tool list, e.g. `["Read","Grep","Glob"]`. Narrow tools on read-only nodes is a real safety and cost win. |
 | `reads` | no | all | Named payloads this node consumes. |
 | `writes` | no | all | Named payloads this node produces. |
 | `max_attempts` | no | all | Retry bound. Defaults to 1. Any `code` or `agent` node that a `fail` edge targets needs a real number here. A `human` node does not: reaching one costs a person's attention and halts the run until they act, so it cannot run away unattended, and the bound exists to stop unattended spend. That makes a human node the natural target for a forward escalation edge. |
 | `on_exhausted` | no | all | `fail`, `human`, or `escalate-model`. What happens when `max_attempts` is used up. Defaults to `fail`. |
 | `evidence` | no | all | Names the artifact that proves this node did its job. See below. |
+
+## Backends
+
+No single agent system reaches every model, and they bill to different meters, so
+which one runs a node is a design decision rather than an installation detail.
+
+| `backend` | Reaches | Billed to | Resumes on retry |
+|---|---|---|---|
+| `claude` (default) | Claude tiers | the Claude account | yes |
+| `codex` | the GPT-5.x fleet | the ChatGPT account | yes, by session id |
+| `agy` | Gemini, GPT-OSS 120B, and Claude on a separate meter | the Antigravity account | yes, by conversation id |
+| `openai-compat` | whatever an Ollama- or LM-Studio-compatible server hosts | nothing | no — these endpoints are stateless |
+
+Everything else about a run is identical whichever backend a node uses. Routing,
+retry ceilings, payloads, evidence, the budget and delegate mode all live in the
+driver, so the backend changes only where the model call goes.
+
+Two things worth knowing before you pick:
+
+- **`agy` takes its prompt on the command line and ignores stdin.** Verified, not
+  assumed. So it alone is bounded by the OS command-line limit, and a prompt over
+  ~28,000 characters is **refused with an explanation** rather than truncated. A
+  truncated prompt comes back as a confident answer to half a question, which is
+  worse than a failed run. If a node's incoming edges carry large payloads, route it
+  somewhere that reads stdin.
+- **A `openai-compat` node must be the target of a `fail` edge.** The validator
+  enforces it. Output from a small self-hosted model is raw material, not a result,
+  and being the target of a fail edge is exactly the property "something downstream
+  can reject this" — so the rule reuses it rather than inventing a second notion of
+  reviewed.
+
+### "Local" is an address, not a promise
+
+The field is spelled `openai-compat` rather than `local` deliberately. The endpoint
+is a URL and a URL does not have to be this machine — pointing a node at a bigger
+box on the network is supported, and it is how you reach a model that will not fit
+in local RAM.
+
+Which means **the privacy property comes from the address being loopback, not from
+the model being self-hosted.** An endpoint on another host carries the payload off
+this machine exactly like a cloud API does. Nothing blocks that, because it is a
+legitimate choice; instead the generated design doc carries a **Payload goes to**
+column naming the destination for every agent node, and calls out in bold the ones
+that leave the machine. A reviewer sees it before the run, while it is still a
+decision.
+
+```json
+{
+  "id": "summarize",
+  "kind": "agent",
+  "backend": "openai-compat",
+  "endpoint": "http://192.168.1.50:11434",
+  "model": "qwen3-coder",
+  "max_attempts": 2,
+  "on_exhausted": "escalate-model"
+}
+```
+
+Which binary each CLI backend runs, and the sandbox Codex gets, are environment
+knobs rather than spec fields — see the generated package's README.
 
 ## Evidence
 
