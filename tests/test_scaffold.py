@@ -937,7 +937,13 @@ class TestEventLog(ScaffoldCase):
     def test_enormous_output_is_truncated_and_says_so(self):
         """A runaway node must not make the log unreadable, and a truncated
         record that does not admit it is worse than none."""
-        pkg = self.loop_pkg('python -c "print(\'x\' * 60000)"\n', "exit 0\n")
+        # Shell only, deliberately. `python` is not on PATH on a stock Linux box
+        # -- only `python3` is -- so a step that shells to `python` produced a
+        # 20-byte "command not found" instead of the runaway output this test
+        # exists to truncate, and passed anyway because the assertion it defeated
+        # was the one checking output got smaller. CI missed it because
+        # actions/setup-python puts `python` on PATH.
+        pkg = self.loop_pkg("yes x | head -n 60000 | tr -d '\\n'\n", "exit 0\n")
         run_dir = self.dir / "run"
         run_workflow(pkg, run_dir, workdir=pkg)
         results = [e for e in self.events(run_dir)
