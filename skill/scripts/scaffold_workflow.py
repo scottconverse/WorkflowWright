@@ -244,7 +244,16 @@ def _run_claude(prompt, *, session_id=None, model=None, tools=None, cwd=None):
     except subprocess.TimeoutExpired:
         return Result(False, f"agent exceeded {AGENT_TIMEOUT}s timeout", session_id)
     except FileNotFoundError:
+        # Kept ahead of OSError, which it subclasses, because "not on PATH" is
+        # the one start failure with an obvious fix worth naming.
         return Result(False, f"the `{AGENT_CLI[0]}` CLI is not on PATH", session_id,
+                      launched=False)
+    except OSError as exc:
+        # Everything else that stops a command starting. Pointing the CLI at a
+        # directory raises PermissionError and at a non-executable file raises a
+        # bare OSError, and both escaped as tracebacks -- killing the run rather
+        # than failing the node -- while only the missing-file case was caught.
+        return Result(False, f"could not start `{AGENT_CLI[0]}`: {exc}", session_id,
                       launched=False)
 
     if not proc.stdout.strip():
@@ -276,6 +285,13 @@ def _spawn(cmd, prompt, *, cwd, name):
         return None, Result(False, f"{name} exceeded {AGENT_TIMEOUT}s timeout")
     except FileNotFoundError:
         return None, Result(False, f"the `{cmd[0]}` CLI is not on PATH", None,
+                            launched=False)
+    except OSError as exc:
+        # See _run_claude. These two CLIs are the ones most likely to be named by
+        # a hand-written path -- Antigravity is normally not on PATH -- so the
+        # near-miss that lands on the containing directory is the ordinary
+        # mistake, and it raises PermissionError rather than FileNotFoundError.
+        return None, Result(False, f"could not start `{cmd[0]}`: {exc}", None,
                             launched=False)
     return proc, None
 
@@ -413,13 +429,16 @@ def _run_agy(prompt, *, session_id=None, model=None, cwd=None):
 
 def _post_json(url, payload):
     """POST a JSON body and return (status, decoded-body-or-None, error-text)."""
-    request = urllib.request.Request(
-        url, data=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json",
-                 "anthropic-version": "2023-06-01"},
-        method="POST",
-    )
     try:
+        # Built inside the try, not above it: Request() parses the URL in its
+        # constructor and raises for one it cannot read, so a malformed endpoint
+        # never reaches urlopen and would escape a handler placed after this.
+        request = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json",
+                     "anthropic-version": "2023-06-01"},
+            method="POST",
+        )
         with urllib.request.urlopen(request, timeout=AGENT_TIMEOUT) as response:
             return response.status, json.loads(response.read().decode("utf-8")), ""
     except urllib.error.HTTPError as exc:
@@ -428,6 +447,13 @@ def _post_json(url, payload):
         return 0, None, str(exc.reason)
     except json.JSONDecodeError as exc:
         return 0, None, f"reply was not JSON ({exc})"
+    except ValueError as exc:
+        # Request() raises this for a URL it cannot parse, before any of the
+        # above can apply. The validator refuses such an endpoint at scaffold
+        # time, so this is unreachable from a generated package -- but a
+        # function whose whole job is to turn failure into a return value
+        # should not depend on something upstream to stay true.
+        return 0, None, f"not a usable URL ({exc})"
 
 
 def _run_openai_compat(prompt, *, model=None, endpoint=None):

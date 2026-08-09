@@ -364,6 +364,48 @@ class RunnerBackends(unittest.TestCase):
         argv = self.argv_of(home)
         self.assertEqual(argv[argv.index("--conversation") + 1], "agy-conv-1")
 
+    def test_a_cli_path_that_cannot_start_fails_the_node_instead_of_the_run(self):
+        """Every way a command fails to start, not just the absent one.
+
+        `FileNotFoundError` is one member of the OSError family and not the most
+        likely: the manual tells you to point WORKFLOW_AGY_CLI at
+        `%LOCALAPPDATA%\\agy\\bin\\agy.exe` because Antigravity is not on PATH, so
+        stopping a directory short is the ordinary mistake. That raised
+        PermissionError, which escaped run_agent as a traceback -- taking the whole
+        run down with no node_result, no fail edge, no run_end, and the state file
+        left live so a dead run still looked resumable.
+        """
+        a_directory = self.dir / "not-a-binary"
+        a_directory.mkdir(exist_ok=True)
+        a_text_file = self.dir / "not-a-binary.txt"
+        a_text_file.write_text("this is not a program", encoding="utf-8")
+
+        wrong = {"a directory": str(a_directory),
+                 "a non-executable file": str(a_text_file),
+                 "an empty string": ""}
+        for attr, backend in (("AGENT_CLI", "claude"), ("CODEX_CLI", "codex"),
+                              ("AGY_CLI", "agy")):
+            for description, path in wrong.items():
+                with self.subTest(backend=backend, cli=description):
+                    self.addCleanup(setattr, self.runner, attr,
+                                    getattr(self.runner, attr))
+                    setattr(self.runner, attr, [path])
+                    result = self.runner.run_agent(
+                        "hi", backend=backend, node_id="n",
+                        run_dir=self.dir / "cli-start")
+                    self.assertFalse(result.ok)
+                    self.assertFalse(result.launched, "nothing ran, so nothing is owed")
+                    self.assertIn("could not start", result.output)
+
+    def test_an_unparseable_endpoint_fails_the_node_instead_of_the_run(self):
+        """The validator refuses these at scaffold time, so this is defence in
+        depth -- but _post_json exists to turn failure into a return value, and
+        Request() raises ValueError before any handler it has can apply."""
+        result = self.runner.run_agent("hi", backend="openai-compat",
+                                       endpoint="nonsense")
+        self.assertFalse(result.ok)
+        self.assertIn("not a usable URL", result.output)
+
     def test_a_cli_backend_that_is_not_installed_does_not_charge_the_budget(self):
         """Same distinction the HTTP backend makes, and it has to hold for all of
         them or the budget means something different per node."""
