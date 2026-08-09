@@ -373,7 +373,7 @@ the process boundary. Only the model call moves.
 
 | | **Subprocess** (default) | **Delegate** (`--delegate`) |
 |---|---|---|
-| Agent nodes run by | an agent CLI, spawned per node | whoever is driving the workflow |
+| Agent nodes run by | the system each node's `backend` names, spawned per node | whoever is driving the workflow |
 | Needs `claude` on PATH | yes | no |
 | Runs unattended start to finish | yes | no: pauses at each agent node |
 | Session resume on retry | yes, via `--resume` | n/a — you keep your own context |
@@ -477,8 +477,27 @@ Environment variables, all optional:
 | `WORKFLOW_STEP_TIMEOUT` | `3600` | Seconds before a step script is killed |
 | `WORKFLOW_PERMISSION_MODE` | `acceptEdits` | Passed to the agent CLI as `--permission-mode` |
 | `WORKFLOW_AGENT_CLI` | `claude` | The agent command; may carry arguments (e.g. a test stub) |
+| `WORKFLOW_CODEX_CLI` | `codex` | The binary for `backend: codex` nodes |
+| `WORKFLOW_AGY_CLI` | `agy` | The binary for `backend: agy` nodes. Antigravity is usually not on PATH — on Windows it installs to `%LOCALAPPDATA%\agy\bin\agy.exe` |
+| `WORKFLOW_CODEX_SANDBOX` | `read-only` | Codex's `-s` sandbox |
+| `WORKFLOW_AGY_PROMPT_LIMIT` | `28000` | Characters above which an `agy` node refuses its prompt rather than letting the command line truncate it |
+| `WORKFLOW_OPENAI_MAX_TOKENS` | `4096` | `max_tokens` for `openai-compat` nodes |
 | `WORKFLOW_DELEGATE` | unset | Set to `1` for delegate mode; same switch as `--delegate` |
 | `WORKFLOW_BASH` | unset | Windows only: which bash runs step scripts |
+
+Two of those are worth more than a table row.
+
+**`WORKFLOW_CODEX_SANDBOX` defaults to `read-only`, which is not Codex's own default.**
+Codex ships as workspace-write with approvals off — it edits files without asking. A
+workflow whose whole premise is that each node's effects are declared has no business
+inheriting that silently, so the runner asks for read-only unless you say otherwise.
+Widen it deliberately, per run, when writes are the point of the node.
+
+**`WORKFLOW_OPENAI_MAX_TOKENS` is the first thing to raise when a self-hosted node
+returns nothing.** A reasoning-style model spends hidden thinking tokens before any
+visible output, so too low a ceiling produces an empty reply rather than a short one.
+The runner never reports that as success — an empty answer recorded as an answer is the
+silent kind of wrong — so you get a failure naming this variable.
 
 Exit codes:
 
@@ -509,6 +528,7 @@ Everything a run did lands in the run directory as ordinary files:
 | `driver-state.final.json` | The same, retired when the run ends — the receipt for a finished run |
 | `<node>.out` | Every node's output, whether it succeeded or failed |
 | `<node>.prompt.md` | The exact composed prompt an agent node was given |
+| `<node>.codex-last.txt` | A `codex` node's final message, read from the file rather than parsed out of the event stream |
 | `<node>.result.consumed.md` | A delegated answer, kept after use rather than deleted |
 | `<node>.decision.json` | A human gate: what was presented, the verdict, the reasoning, a UTC timestamp |
 | `<node>.answer.consumed.md` | The written answer behind that decision |
@@ -663,10 +683,13 @@ then continue with `--from <the-next-node>`. If you expected an interactive prom
 you're running it from something that detaches stdin (CI, cron, a task runner).
 
 **An agent's answer looks like it only saw part of the prompt.**
-On current code, it can't be argv truncation — prompts travel on stdin. Check the
-prompt template's `reads` list actually declares the payload you expected to be
-substituted; an undeclared `{{name}}` placeholder is left as-is, not filled. If
-you're on a fork that reverted to argv delivery, see [trap 4](#the-traps).
+On a `claude`, `codex`, or `openai-compat` node it can't be argv truncation — those
+carry the prompt on stdin. Check the prompt template's `reads` list actually declares
+the payload you expected to be substituted; an undeclared `{{name}}` placeholder is
+left as-is, not filled. On an `agy` node the prompt does go on the command line, but a
+prompt long enough to be at risk is refused outright with a message naming the length
+— so if the run completed, it was not truncated either. If you're on a fork that
+reverted to argv delivery, see [trap 4](#the-traps).
 
 ## The traps
 
@@ -692,12 +715,21 @@ one, the suite will tell you which conviction you've just violated.
    exhausts the loop. Pinned by
    `test_checker_failing_repeatedly_does_not_consume_its_own_retries`.
 
-4. **The agent prompt travels on stdin, never argv.** It looks like an odd
-   asymmetry — the flags are argv. But prompts carry whole payload files: they
-   exceed the 8191-character `cmd.exe` ceiling, and npm's `claude.CMD` shim
-   truncates a multi-line argv prompt at the first newline. Both failures are
-   silent — the agent answers a fragment and the run looks fine. Verified against a
-   real CLI before landing. Pinned by `test_large_prompt_survives_the_process_boundary`.
+4. **The agent prompt travels on stdin wherever stdin is read — and where it isn't,
+   an oversized prompt is refused instead.** It looks like an odd asymmetry — the
+   flags are argv. But prompts carry whole payload files: they exceed the
+   8191-character `cmd.exe` ceiling, and npm's `claude.CMD` shim truncates a
+   multi-line argv prompt at the first newline. Both failures are silent — the agent
+   answers a fragment and the run looks fine. Verified against a real CLI before
+   landing. Pinned by `test_large_prompt_survives_the_process_boundary`.
+
+   The `agy` backend is the exception, and not by choice: Antigravity ignores stdin,
+   so its prompt has to go on the command line. Rather than accept the silent failure
+   back, that node refuses any prompt over `WORKFLOW_AGY_PROMPT_LIMIT` (28,000
+   characters) and says why. A refused run costs one run; a truncated prompt returns
+   a confident answer to half a question, which is the failure the rest of this list
+   exists to prevent. Pinned by
+   `test_agy_refuses_an_oversized_prompt_rather_than_truncating`.
 
 5. **`run_step` resolves bash explicitly and hard-fails naming `WORKFLOW_BASH`,
    rather than falling back to `"bash"`.** The fallback looks harmless — surely
@@ -736,9 +768,16 @@ requests of any kind — the same constraint the artifacts hold themselves to.
 
 ## Extending it
 
-`runner.py` is the only place a generated workflow leaves the Python process — three
-functions: `run_agent`, `run_step`, `ask_human`. Swap the CLI for an SDK, add
-tracing, enforce a token budget, or mock the whole outside world for tests, all in
-that one file. `workflow.py` never needs to know. For quick substitutions that don't
-merit an edit — pointing tests at a stub, trying a different CLI — `WORKFLOW_AGENT_CLI`
-does it from the environment.
+Most of what people reach for here needs no code at all. **Sending a node to a
+different system is the `backend` field in `spec.json`** — `claude`, `codex`, `agy`, or
+`openai-compat` with an `endpoint` — followed by a regenerate. Editing the generated
+file to do it would be edited away the next time the spec changes.
+
+Past those four, `runner.py` is the only place a generated workflow leaves the Python
+process — three functions: `run_agent`, `run_step`, `ask_human`. Reach a fifth system,
+swap in an SDK, add tracing, enforce a token budget, or mock the whole outside world
+for tests, all in that one file; `run_agent` dispatches on `backend`, so a new one is a
+branch and a function beside the four already there. `workflow.py` never needs to know.
+For substitutions that don't merit an edit — pointing tests at a stub, running a
+patched binary — `WORKFLOW_AGENT_CLI`, `WORKFLOW_CODEX_CLI` and `WORKFLOW_AGY_CLI` do
+it from the environment.

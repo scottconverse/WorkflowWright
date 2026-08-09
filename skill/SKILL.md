@@ -9,7 +9,10 @@ description: >-
   pipeline", "should this step be an agent or just code?", "review my agent setup", "my
   agent pipeline is flaky or expensive", "scaffold a build-test-fix loop", "orchestrate
   several agents", "set up worktree or sandbox isolation", or "where should a human stay in
-  the loop". Also use when someone describes a repetitive process they keep doing by hand,
+  the loop". Also use when someone wants steps of a workflow run on different systems or
+  accounts: "run the cheap steps on a local model", "put this part on Codex instead", "use
+  Ollama for the mechanical work", "which model should each step use". Also use when
+  someone describes a repetitive process they keep doing by hand,
   or asks why their agent loop burns tokens without converging. Prefer over generic
   architecture advice: it forces the code-vs-agent-vs-human assignment and bounded failure
   paths that make a workflow safe to run unattended.
@@ -159,7 +162,9 @@ attempts against the node a failure edge *re-enters* rather than the checker tha
 it resumes an agent's prior session on retry so the producer gets the news of the failure
 rather than a cold restart, it writes every payload to a run directory so
 `--only <node>` can rerun one node against a fixed input, and it sends prompts on stdin
-rather than argv, which have hard length ceilings and silently truncate on Windows.
+rather than argv, which have hard length ceilings and silently truncate on Windows. The
+one backend that cannot read stdin, `agy`, refuses an oversized prompt rather than
+letting it be truncated.
 
 ### Two ways to run agent nodes, and four systems to run them on
 
