@@ -115,13 +115,58 @@ def install(target: Path, dry_run: bool = False) -> int:
     return 0
 
 
+# The skill directory each host reads. They do not share, so a machine with more
+# than one host has more than one copy, and copies drift -- which is the actual
+# failure this addresses: two of three sat a version behind for a day because
+# updating them was three commands nobody remembers to run.
+HOSTS = {
+    "Claude Code": Path.home() / ".claude" / "skills" / "workflowwright",
+    "Codex": Path.home() / ".codex" / "skills" / "workflowwright",
+    "Antigravity": Path.home() / ".gemini" / "config" / "skills" / "workflowwright",
+}
+
+
+def install_everywhere(dry_run: bool = False) -> int:
+    """Update every host copy that already exists, and create none.
+
+    Deliberately does not install where the skill is absent. A host you do not
+    use should not gain a copy because you ran an update, and on Claude in
+    particular a local install SHADOWS the account copy -- so creating one here
+    would silently take over from the version that syncs between your machines.
+    """
+    present = {name: path for name, path in HOSTS.items() if path.exists()}
+    if not present:
+        print("no host copies found. Install one first, e.g.:")
+        for name, path in HOSTS.items():
+            print(f"  python3 scripts/install.py {path}    # {name}")
+        return 0
+
+    worst = 0
+    for name, path in present.items():
+        print(f"{name}: {path}")
+        worst = max(worst, install(path, dry_run=dry_run))
+        print("")
+
+    skipped = [n for n in HOSTS if n not in present]
+    if skipped:
+        print(f"not installed, so not touched: {', '.join(skipped)}")
+    print("the claude.ai account copy is an upload, not a directory -- "
+          "run `make package` and upload the archive.")
+    return worst
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("target", nargs="?", default=str(DEFAULT),
                         help="directory to install into (default: %(default)s)")
+    parser.add_argument("--all", action="store_true",
+                        help="update every host copy that already exists on this "
+                             "machine, and create none")
     parser.add_argument("--dry-run", action="store_true",
                         help="report what would change and change nothing")
     args = parser.parse_args(argv)
+    if args.all:
+        return install_everywhere(dry_run=args.dry_run)
     return install(Path(args.target), dry_run=args.dry_run)
 
 

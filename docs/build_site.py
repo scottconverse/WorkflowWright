@@ -714,7 +714,7 @@ make test   <span class="t-dim"># 96 tests, no network</span></pre>
     <p class="eyebrow">Status and limits</p>
     <h2>What this is not, yet</h2>
     <div class="prose">
-      <p>New and openly developed, with a real test suite: 168 stdlib tests covering the
+      <p>New and openly developed, with a real test suite: 170 stdlib tests covering the
       validator, the renderer, the backend adapter, and the generated driver's retry and
       session behaviour, running on Python 3.10–3.14 on Linux and on Windows. Current
       release is <a href="__REPO__/releases/latest">v0.2.1</a>; if you installed the

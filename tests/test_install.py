@@ -101,6 +101,48 @@ class Installing(unittest.TestCase):
         self.assertEqual(installed["version"], source["version"])
 
 
+class UpdateEverywhere(unittest.TestCase):
+    """`--all` updates the copies that exist and creates none.
+
+    Two of three host copies on the author's machine sat a version behind for a
+    day, because keeping them level was three separate commands. Creating
+    missing ones would be worse than leaving them: on Claude a local install
+    shadows the account copy, so an update that helpfully created one would
+    silently take over from the version that syncs between machines.
+    """
+
+    def setUp(self):
+        self.root = Path(tmpdir())
+        self.addCleanup(shutil.rmtree, self.root, True)
+        sys.path.insert(0, str(REPO / "scripts"))
+        import install as installer  # noqa: E402
+        self.installer = installer
+        self.addCleanup(sys.path.remove, str(REPO / "scripts"))
+        self.original = installer.HOSTS.copy()
+        self.addCleanup(setattr, installer, "HOSTS", self.original)
+
+    def test_updates_only_the_copies_that_already_exist(self):
+        present = self.root / "present"
+        absent = self.root / "absent"
+        run_install(present)
+        self.installer.HOSTS = {"Present": present, "Absent": absent}
+
+        stale = present / "references" / "gone.md"
+        stale.write_text("old\n", encoding="utf-8")
+
+        code = self.installer.install_everywhere()
+
+        self.assertEqual(code, 0)
+        self.assertFalse(stale.exists(), "the existing copy was not updated")
+        self.assertFalse(absent.exists(), "--all created a copy that was not there")
+
+    def test_says_so_when_nothing_is_installed(self):
+        self.installer.HOSTS = {"Absent": self.root / "nope"}
+        code = self.installer.install_everywhere()
+        self.assertEqual(code, 0)
+        self.assertFalse((self.root / "nope").exists())
+
+
 class Refusals(unittest.TestCase):
     """Same two as the uninstaller, for the same reason: this deletes."""
 

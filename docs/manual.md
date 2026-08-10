@@ -114,6 +114,7 @@ of them.
 
 ```sh
 make install      # install into ~/.claude/skills/, replacing any older version
+make install-all  # update every host copy on this machine at once
 make uninstall    # remove that copy again
 make package      # build build/workflowwright.zip, the archive you upload
 make validate     # check both manifests with Claude Code's own validator
@@ -127,6 +128,16 @@ python3 scripts/install.py                  # what `make install` runs
 python3 scripts/build_package.py            # what `make package` runs
 python3 scripts/uninstall.py --dry-run      # what `make uninstall` runs, safely
 ```
+
+**One machine, one command: `make install-all`.** Each host reads its own
+skills directory and they never share, so a machine running Claude Code, Codex
+and Antigravity has three copies that drift independently — which is exactly
+how two of them ended up a version behind for a day. `--all` updates every copy
+that already exists and **creates none**: a host you do not use should not gain
+a copy because you ran an update, and on Claude a local install shadows the
+account copy, so creating one would quietly displace the version that syncs
+between your machines. The account copy is an upload rather than a directory,
+so it stays a separate step.
 
 **`install.py` replaces rather than merges, which is why it is a script too.**
 `cp -r skill/. DIR/` overwrites the files it has and leaves behind any the new

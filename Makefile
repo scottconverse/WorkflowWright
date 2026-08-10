@@ -34,6 +34,9 @@ validate: ## Check the plugin and marketplace manifests with Claude Code's valid
 install: ## Install the skill into ~/.claude/skills/, replacing any older version
 	$(PY) scripts/install.py $(SKILL_DIR)
 
+install-all: ## Update every host copy on this machine (Claude Code, Codex, Antigravity)
+	$(PY) scripts/install.py --all
+
 # Delegates rather than running `rm -rf $(SKILL_DIR)` here: the directory is a
 # variable, so the recipe is only ever as safe as what the variable holds, and
 # make is absent on some machines this repo is developed on -- which would put
