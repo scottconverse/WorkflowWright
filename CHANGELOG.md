@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.2.1
+
+**v0.2.0's archive could not be installed.** Its `SKILL.md` description was
+1252 characters and the claude.ai uploader rejects anything over 1024, so the
+desktop and web route — the one v0.2.0 existed to fix — refused the file. The
+description is now 1019, and a test enforces the limit, because nothing else in
+the repo fails when it grows: it stays invisible until an upload is rejected by
+hand.
+
+Also: `make install` merged rather than replaced. `cp -r skill/. DIR/`
+overwrites the files it has and leaves behind any a newer version dropped, so an
+upgrade produced a mixture of two releases. No file had ever been deleted
+between releases, so nothing had gone wrong yet. `scripts/install.py` now
+mirrors, reports what it added, updated and removed, and refuses the same two
+cases the uninstaller does. The Codex and Antigravity instructions had the same
+bug and now call it too.
+
 ## v0.2.0
 
 **If you installed v0.1.0 by downloading the release archive — the desktop and

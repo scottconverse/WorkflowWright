@@ -86,7 +86,7 @@ packaged archive with `SKILL.md` at its root:
    from the [latest release](https://github.com/scottconverse/WorkflowWright/releases/latest).
    This is the one install route that pins a version rather than tracking the branch,
    so it is the one that needs re-uploading when a release fixes something — v0.2.0
-   did; see the [changelog](../CHANGELOG.md).
+   and v0.2.1 both did; see the [changelog](../CHANGELOG.md).
 2. **Settings → Skills → Upload skill**, and drop the file in. A short security scan
    runs before it becomes usable.
 3. Remove it in the same place.

@@ -6,9 +6,10 @@
 [Spec schema](skill/references/spec-schema.md) ·
 [Example spec](skill/assets/example-spec.json)
 
-> **Using v0.1.0 from the release archive?** Update to v0.2.0 — it fixes security
-> defects in how spec content was handled. See the [changelog](CHANGELOG.md). The
-> plugin and `git clone` installs already track these fixes.
+> **Installed from the release archive?** Update to v0.2.1. v0.2.0 fixed security
+> defects in how spec content was handled but shipped an archive the uploader
+> rejects; v0.2.1 fixes that. See the [changelog](CHANGELOG.md). The plugin and
+> `git clone` installs already track both.
 
 **Agent automation fails for structural reasons, not prompting reasons.**
 
