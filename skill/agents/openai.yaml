@@ -1,0 +1,13 @@
+# Codex reads agents/openai.yaml for a skill's display metadata and invocation
+# policy. Claude Code and Antigravity ignore it, so it lives in skill/ and ships
+# to every host rather than being generated per-target -- install.py mirrors all
+# of skill/, so a host-specific file would look like drift to the mirror check.
+interface:
+  display_name: "WorkflowWright"
+  short_description: "Design, critique, and scaffold agent workflows with bounded failure paths"
+  default_prompt: "Use $workflowwright to design this workflow: assign each step to code, an agent, or a human, then scaffold it with bounded retries."
+policy:
+  # SKILL.md is written to trigger on descriptions of a repetitive process or a
+  # misbehaving agent loop, which the user will not phrase as a skill request.
+  # That only works if the harness may invoke it without being asked by name.
+  allow_implicit_invocation: true
