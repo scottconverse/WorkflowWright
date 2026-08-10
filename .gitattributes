@@ -1,0 +1,6 @@
+# The generated orchestrator and the skill files are read on Linux, macOS and
+# Windows, and shipped to three harnesses plus a marketplace clone. Windows
+# clones default to core.autocrlf=true, so the same commit produced LF in the
+# repo and CRLF in the plugin cache. Pin the working tree to LF everywhere
+# rather than relying on each machine core.autocrlf setting.
+* text=auto eol=lf

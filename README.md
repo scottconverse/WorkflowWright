@@ -6,9 +6,13 @@
 [Spec schema](skill/references/spec-schema.md) ·
 [Example spec](skill/assets/example-spec.json)
 
-> **Installed from the release archive?** Update to v0.2.2. See the
-> [changelog](CHANGELOG.md) for what v0.2.0-v0.2.2 each fixed. The plugin and
+> **Installed from the release archive?** Update to v0.2.3. See the
+> [changelog](CHANGELOG.md) for what v0.2.0-v0.2.3 each fixed. The plugin and
 > `git clone` installs already track all of it.
+>
+> **On Codex?** v0.2.3 adds the `agents/openai.yaml` Codex needs to show the
+> skill's name and let it fire without being called by name. Re-run
+> `python3 scripts/install.py ~/.codex/skills/workflowwright` to pick it up.
 
 **Agent automation fails for structural reasons, not prompting reasons.**
 

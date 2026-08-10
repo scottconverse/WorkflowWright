@@ -58,7 +58,14 @@ and the plugin's `version` field decides whether you are offered a new copy.
 
 Both read a skill as a directory containing `SKILL.md` with `name` and `description`
 frontmatter — the shape `skill/` already has — so installing is a copy with no adapter
-and no conversion:
+and no conversion.
+
+Codex reads one file more: `agents/openai.yaml`, which supplies the display name, the
+short description, and `allow_implicit_invocation`. Without it the skill still loads
+there, but shows unlabelled and will not fire unless you type its name — which defeats
+a description written to trigger on how people actually describe the problem. The file
+ships inside `skill/`, so a copy install picks it up; it arrived in v0.2.3, and a Codex
+copy installed before that needs the install re-run to gain it.
 
 ```sh
 git clone https://github.com/scottconverse/WorkflowWright.git

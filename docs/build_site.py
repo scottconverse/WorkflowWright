@@ -717,7 +717,7 @@ make test   <span class="t-dim"># 96 tests, no network</span></pre>
       <p>New and openly developed, with a real test suite: 173 stdlib tests covering the
       validator, the renderer, the backend adapter, and the generated driver's retry and
       session behaviour, running on Python 3.10–3.14 on Linux and on Windows. Current
-      release is <a href="__REPO__/releases/latest">v0.2.2</a>; if you installed the
+      release is <a href="__REPO__/releases/latest">v0.2.3</a>; if you installed the
       archive before it, see the
       <a href="__REPO__/blob/main/CHANGELOG.md">changelog</a> — v0.2.0 fixed security
       defects in how spec content was handled.</p>

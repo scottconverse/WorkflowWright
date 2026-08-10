@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.2.3
+
+- **Codex loaded the skill with no metadata and no permission to invoke
+  itself.** Codex reads `agents/openai.yaml` inside a skill for its display
+  name, short description, and whether it may fire without being named. The
+  skill had no such file, so it appeared unlabelled and stayed inert unless the
+  user typed its name — which defeats a description written to trigger on
+  phrasings like "my agent pipeline is flaky", that nobody recognises as a skill
+  request. Added with `allow_implicit_invocation: true`. Claude Code and
+  Antigravity ignore the file, so it ships to every host rather than being
+  generated per-target: `install.py` mirrors all of `skill/`, and a
+  host-specific file would read as drift to the mirror check.
+- **The same commit produced LF in the repo and CRLF in the plugin cache.**
+  Windows clones default to `core.autocrlf=true`, so a checkout's line endings
+  depended on which machine made it. Pinned the working tree to LF with
+  `.gitattributes`. The index was already all-LF, so nothing was rewritten —
+  this only stops a future Windows clone from committing CRLF back.
+- Documentation now states that Codex reads `agents/openai.yaml`. The manual's
+  install section previously described Codex and Antigravity as identical
+  copies with "no adapter and no conversion", which was true of the directory
+  shape and wrong about the metadata.
+
 ## v0.2.2
 
 - **The design doc and the generated package's own header promised isolation
