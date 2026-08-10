@@ -82,8 +82,9 @@ phrasing.
 
 ```sh
 git clone https://github.com/scottconverse/WorkflowWright.git
-cp -r WorkflowWright/skill ~/.codex/skills/workflowwright          # Codex
-cp -r WorkflowWright/skill ~/.gemini/config/skills/workflowwright  # Antigravity
+cd WorkflowWright
+python3 scripts/install.py ~/.codex/skills/workflowwright          # Codex
+python3 scripts/install.py ~/.gemini/config/skills/workflowwright  # Antigravity
 ```
 
 See [AGENTS.md](AGENTS.md) for other hosts and for what does and does not carry over.
@@ -101,7 +102,7 @@ make test        # run the suite — no network, credentials, or token spend
 make validate    # check the plugin and marketplace manifests
 make example     # render the bundled example spec into examples/
 make site        # rebuild the landing page in docs/ from that example
-make install     # copy skill/ into ~/.claude/skills/   (make uninstall removes it)
+make install     # install into ~/.claude/skills/, replacing any older version
 make package     # build the archive for a claude.ai account upload
 ```
 
@@ -228,7 +229,7 @@ script, or a better prompt, and the skill will tell you so.
 
 ## Tests
 
-159 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
+168 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
 
 ```sh
 python -m unittest discover -s tests

@@ -15,12 +15,13 @@ is a copy. There is no adapter and no conversion step:
 
 ```sh
 git clone https://github.com/scottconverse/WorkflowWright.git
+cd WorkflowWright
 
 # Codex
-cp -r WorkflowWright/skill ~/.codex/skills/workflowwright
+python3 scripts/install.py ~/.codex/skills/workflowwright
 
 # Antigravity (machine-wide; use .agents/skills/ in a project instead)
-cp -r WorkflowWright/skill ~/.gemini/config/skills/workflowwright
+python3 scripts/install.py ~/.gemini/config/skills/workflowwright
 ```
 
 On Windows those are `%USERPROFILE%\.codex\skills\workflowwright` and

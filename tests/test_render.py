@@ -4,13 +4,14 @@ Several of these lock in regressions found during development rather than hypoth
 failures — see the comments on each.
 """
 
+import re
 import shutil
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 
-from helpers import EXAMPLE_SPEC, SCRIPTS, tmpdir, valid_spec, write_spec
+from helpers import EXAMPLE_SPEC, REPO, SCRIPTS, tmpdir, valid_spec, write_spec
 
 import render_workflow as rw
 
@@ -115,6 +116,35 @@ class TestOutputs(unittest.TestCase):
         html = (self.out / "fixture.html").read_text(encoding="utf-8")
         self.assertNotIn("<script>alert", html)
         self.assertIn("&lt;script&gt;", html)
+
+    def test_skill_description_fits_what_the_uploader_accepts(self):
+        """1024 characters, enforced by the claude.ai uploader at upload time.
+
+        v0.2.0 shipped at 1252 and could not be installed by the desktop/web
+        route -- the exact route that release existed to fix. The description
+        had sat at 1018 for months, six characters under, which was the
+        constraint announcing itself; I read a 1,536 figure in the docs about
+        how the skill *listing* truncates text and used it to overrule the
+        number in front of me. Different mechanism, wrong conclusion.
+
+        The reason this is a test and not a note: nothing else in the repo
+        fails when the description grows, so it is invisible until an upload
+        is rejected by hand.
+        """
+        text = (REPO / "skill" / "SKILL.md").read_text(encoding="utf-8")
+        front = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+        self.assertIsNotNone(front, "SKILL.md has no YAML frontmatter")
+
+        block = front.group(1).split("description: >-", 1)
+        self.assertEqual(len(block), 2, "description is not a folded block")
+        # Folded scalar: newlines become spaces, which is what the uploader counts.
+        description = " ".join(block[1].split())
+
+        self.assertLessEqual(
+            len(description), 1024,
+            f"SKILL.md description is {len(description)} chars; the uploader "
+            f"rejects anything over 1024, so the skill cannot be installed on "
+            f"the desktop or web clients. Trim by {len(description) - 1024}.")
 
     def test_markdown_tables_keep_their_columns(self):
         """Ordinary content, not hostile content, was breaking the design doc.

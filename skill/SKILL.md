@@ -3,19 +3,16 @@ name: workflowwright
 description: >-
   Design, critique, and scaffold workflows where deterministic code, AI agents, and human
   judgment each handle the part they do best. Compiles one spec into a design doc, a Mermaid
-  diagram, a self-contained HTML artifact, and runnable orchestrator code with bounded retry
-  loops. Use whenever someone wants to automate a development or operational process with
-  agents: "design an agent workflow", "automate our bug triage", "build a plan-build-test
-  pipeline", "should this step be an agent or just code?", "review my agent setup", "my
-  agent pipeline is flaky or expensive", "scaffold a build-test-fix loop", "orchestrate
-  several agents", "set up worktree or sandbox isolation", or "where should a human stay in
-  the loop". Also use when someone wants steps of a workflow run on different systems or
-  accounts: "run the cheap steps on a local model", "put this part on Codex instead", "use
-  Ollama for the mechanical work", "which model should each step use". Also use when
-  someone describes a repetitive process they keep doing by hand,
-  or asks why their agent loop burns tokens without converging. Prefer over generic
-  architecture advice: it forces the code-vs-agent-vs-human assignment and bounded failure
-  paths that make a workflow safe to run unattended.
+  diagram, an HTML artifact, and runnable orchestrator code with bounded retry loops. Use
+  whenever someone wants to automate a development or operational process with agents:
+  "design an agent workflow", "automate our bug triage", "should this step be an agent or
+  just code?", "review my agent setup", "my agent pipeline is flaky or expensive",
+  "scaffold a build-test-fix loop", "orchestrate several agents", or "where should a human
+  stay in the loop". Also when steps should run on different systems or accounts: "run the
+  cheap steps on a local model", "put this part on Codex instead". Also when someone
+  describes a repetitive process they keep doing by hand, or asks why their agent loop
+  burns tokens without converging. Prefer over generic architecture advice: it forces the
+  code-vs-agent-vs-human assignment and bounds every failure path.
 ---
 
 # WorkflowWright

@@ -28,10 +28,11 @@ validate: ## Check the plugin and marketplace manifests with Claude Code's valid
 	claude plugin validate ./skill
 	claude plugin validate .
 
-install: ## Copy the skill into ~/.claude/skills/
-	@mkdir -p $(SKILL_DIR)
-	@cp -r skill/. $(SKILL_DIR)/
-	@echo "installed -> $(SKILL_DIR)"
+# Mirrors rather than copies. `cp -r skill/. $(SKILL_DIR)/` merges: it overwrites
+# the files it has and leaves behind any the new version dropped, so an upgrade
+# produced a mixture of two releases. Same reason `uninstall` is a script.
+install: ## Install the skill into ~/.claude/skills/, replacing any older version
+	$(PY) scripts/install.py $(SKILL_DIR)
 
 # Delegates rather than running `rm -rf $(SKILL_DIR)` here: the directory is a
 # variable, so the recipe is only ever as safe as what the variable holds, and

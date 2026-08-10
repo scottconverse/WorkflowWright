@@ -62,8 +62,9 @@ and no conversion:
 
 ```sh
 git clone https://github.com/scottconverse/WorkflowWright.git
-cp -r WorkflowWright/skill ~/.codex/skills/workflowwright          # Codex
-cp -r WorkflowWright/skill ~/.gemini/config/skills/workflowwright  # Antigravity
+cd WorkflowWright
+python3 scripts/install.py ~/.codex/skills/workflowwright          # Codex
+python3 scripts/install.py ~/.gemini/config/skills/workflowwright  # Antigravity
 ```
 
 On Windows those are `%USERPROFILE%\.codex\skills\workflowwright` and
@@ -112,7 +113,7 @@ of them.
 | This repo, `skill/` | nothing directly — it is the source | `git clone` | delete the clone |
 
 ```sh
-make install      # copy skill/ into ~/.claude/skills/
+make install      # install into ~/.claude/skills/, replacing any older version
 make uninstall    # remove that copy again
 make package      # build build/workflowwright.zip, the archive you upload
 make validate     # check both manifests with Claude Code's own validator
@@ -122,9 +123,18 @@ make validate     # check both manifests with Claude Code's own validator
 is one command against the same scripts the Makefile calls:
 
 ```sh
+python3 scripts/install.py                  # what `make install` runs
 python3 scripts/build_package.py            # what `make package` runs
 python3 scripts/uninstall.py --dry-run      # what `make uninstall` runs, safely
 ```
+
+**`install.py` replaces rather than merges, which is why it is a script too.**
+`cp -r skill/. DIR/` overwrites the files it has and leaves behind any the new
+version dropped, so an upgrade quietly produces a mixture of two releases — a
+renamed reference file would sit in the install beside its replacement, with
+`SKILL.md` naming only the new one. The installer mirrors instead, reports what
+it added, updated and removed, and carries the same two refusals as the
+uninstaller because replacing means deleting. `--dry-run` works there too.
 
 **`make uninstall` can refuse, and that is the feature.** It will not delete a
 directory with no `SKILL.md` in it, so a mistyped `SKILL_DIR` cannot take out
