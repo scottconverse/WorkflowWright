@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.2
+
+- **The design doc and the generated package's own header promised isolation
+  they do not create.** `isolation: worktree` printed as a bare fact; nothing in
+  the generated code makes a worktree. Both now say so plainly next to the
+  value, where someone deciding whether a run is safe will read it, not only in
+  the project's separate documentation.
+- **Critique mode's rubric never mentioned `backend`.** `design-method.md` has a
+  full section on choosing which system runs a node, including that a
+  self-hosted node needs something checking its output — a rule the validator
+  enforces. The critique rubric's "uniform model selection" pattern covered
+  tier only, so reviewing an existing workflow would never surface either the
+  free-backend opportunity or the missing check. Extended to match.
+
 ## v0.2.1
 
 **v0.2.0's archive could not be installed.** Its `SKILL.md` description was

@@ -96,14 +96,23 @@ tier for four very different tasks, and a context window carrying everything at 
 
 ## 8. Uniform model selection
 
-**Symptom:** the same model on every agent node.
+**Symptom:** the same model on every agent node — and the same *backend*, since no single
+system reaches every model. `claude` everywhere is the common case, but the pattern also
+shows up as `codex` or `agy` everywhere once a workflow adopts one of them.
 
 **Cost:** either overpaying for mechanical steps or underpowering the decision steps.
 Underpowered scouting and planning are the expensive direction — errors there propagate
-through everything downstream and get faithfully implemented.
+through everything downstream and get faithfully implemented. A mechanical node that could
+run for free on a self-hosted model but doesn't is a different cost: not wrong, just paid
+for no reason.
 
-**Fix:** tier per node. Strongest for scout and plan, cheapest that works for mechanical
-transforms.
+**Fix:** tier per node, and consider `backend` alongside tier. Strongest for scout and
+plan, cheapest that works for mechanical transforms — an `openai-compat` node is often the
+right cheapest for narrow classification or reformatting. If a node already runs
+self-hosted, check that something can reject its output: a self-hosted node with no fail
+edge routing back to it is [pattern 9](#9-missing-failure-path) wearing this one's clothes,
+and the classifier's own report is the last place to catch it — a bad route often does not
+fail, it just quietly under-serves.
 
 ## 9. Missing failure path
 

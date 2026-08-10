@@ -1313,6 +1313,21 @@ def uncommenting(text):
     return str(text).replace("-->", "--&gt;")
 
 
+def isolation_line(spec):
+    """How the generated package should describe its isolation setting.
+
+    The field is recorded and reasoned about; nothing here creates a worktree
+    or a container. Printing the bare value reads as a promise the package does
+    not keep, so when it is anything but "none" the value carries the caveat
+    with it -- in the package, where somebody is about to run it, rather than
+    only in the project's own documentation.
+    """
+    value = spec.get("isolation", "none")
+    if value == "none":
+        return value
+    return f"{value} (declared in the spec; this package does not create it)"
+
+
 def commented(text):
     """Keep spec text inside the shell comment it is written into.
 
@@ -1461,7 +1476,7 @@ def generate(spec, out: Path, force: bool):
             name=spec["name"],
             goal=spec["goal"],
             trigger=spec["trigger"],
-            isolation=spec.get("isolation", "none"),
+            isolation=isolation_line(spec),
             entry=spec["entry"],
             budget=(spec.get("budget") or {}).get("agent_calls"),
             # pprint, not json.dumps: JSON's true/false/null are bare names in
@@ -1541,7 +1556,7 @@ def generate(spec, out: Path, force: bool):
             name=spec["name"],
             goal=spec["goal"],
             trigger=spec["trigger"],
-            isolation=spec.get("isolation", "none"),
+            isolation=isolation_line(spec),
             todo_list="\n".join(todo),
             sample=sample,
         ),

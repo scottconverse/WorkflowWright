@@ -441,7 +441,19 @@ def build_markdown(spec, mermaid, problems):
     w(f"# {spec['name']}\n")
     w(f"**Goal.** {spec['goal']}\n")
     w(f"**Trigger.** {spec['trigger']}\n")
-    w(f"**Isolation.** `{spec['isolation']}`\n")
+    # Said here rather than only in the project's docs, because this line is
+    # what somebody reads while deciding whether the workflow is safe to run.
+    # The field is recorded and reasoned about; nothing in the generated code
+    # creates a worktree or a container. A design doc that prints
+    # "Isolation: worktree" with no caveat is making a promise the package
+    # does not keep, which is the one thing a tool about declared behaviour
+    # cannot afford to do.
+    if spec["isolation"] == "none":
+        w(f"**Isolation.** `{cell(spec['isolation'])}`\n")
+    else:
+        w(f"**Isolation.** `{cell(spec['isolation'])}` — declared, and **not created "
+          "by the generated code**. Set it up in your intake step, or run the "
+          "workflow somewhere already isolated.\n")
     w(
         f"**Shape.** {len(nodes)} nodes — "
         + ", ".join(f"{counts[k]} {KIND_LABEL[k].lower()}" for k in KINDS)

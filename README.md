@@ -6,10 +6,9 @@
 [Spec schema](skill/references/spec-schema.md) ·
 [Example spec](skill/assets/example-spec.json)
 
-> **Installed from the release archive?** Update to v0.2.1. v0.2.0 fixed security
-> defects in how spec content was handled but shipped an archive the uploader
-> rejects; v0.2.1 fixes that. See the [changelog](CHANGELOG.md). The plugin and
-> `git clone` installs already track both.
+> **Installed from the release archive?** Update to v0.2.2. See the
+> [changelog](CHANGELOG.md) for what v0.2.0-v0.2.2 each fixed. The plugin and
+> `git clone` installs already track all of it.
 
 **Agent automation fails for structural reasons, not prompting reasons.**
 
@@ -232,7 +231,7 @@ script, or a better prompt, and the skill will tell you so.
 
 ## Tests
 
-170 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
+173 tests, stdlib `unittest`, no dependencies: `make test`, or without make:
 
 ```sh
 python -m unittest discover -s tests

@@ -1,7 +1,7 @@
 {
   "name": "workflowwright",
   "description": "Design, critique, and scaffold workflows where deterministic code, AI agents, and human judgment each handle the part they do best. Compiles one spec into a design doc, a Mermaid diagram, a self-contained HTML artifact, and runnable orchestrator code with bounded retry loops.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": {
     "name": "Scott Converse"
   },

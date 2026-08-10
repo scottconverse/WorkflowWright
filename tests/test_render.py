@@ -146,6 +146,24 @@ class TestOutputs(unittest.TestCase):
             f"rejects anything over 1024, so the skill cannot be installed on "
             f"the desktop or web clients. Trim by {len(description) - 1024}.")
 
+    def test_a_declared_isolation_is_flagged_as_not_actually_created(self):
+        """Isolation is recorded and reasoned about; nothing generates the
+        worktree or the container. A design doc that prints "Isolation:
+        worktree" with no caveat promises something the package does not do."""
+        spec = valid_spec()
+        spec["isolation"] = "worktree"
+        self.render(write_spec(self.out, spec), "--no-prerender")
+        doc = (self.out / "fixture-design.md").read_text(encoding="utf-8")
+        self.assertIn("not created", doc)
+
+    def test_isolation_none_is_stated_plainly_with_no_caveat(self):
+        spec = valid_spec()
+        spec["isolation"] = "none"
+        self.render(write_spec(self.out, spec), "--no-prerender")
+        doc = (self.out / "fixture-design.md").read_text(encoding="utf-8")
+        self.assertIn("**Isolation.** `none`", doc)
+        self.assertNotIn("not created", doc)
+
     def test_markdown_tables_keep_their_columns(self):
         """Ordinary content, not hostile content, was breaking the design doc.
 

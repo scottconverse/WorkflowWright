@@ -167,6 +167,16 @@ class TestGeneration(ScaffoldCase):
             mod._bash({})
         self.assertIn("WORKFLOW_BASH", str(ctx.exception))
 
+    def test_generated_package_flags_isolation_it_does_not_create(self):
+        """Isolation is recorded and reasoned about; nothing in the generated
+        package creates a worktree or a container. Printing the bare value in
+        workflow.py's own header promises something the code does not do."""
+        spec = valid_spec()
+        spec["isolation"] = "worktree"
+        pkg = self.build(spec)
+        header = (pkg / "workflow.py").read_text(encoding="utf-8")
+        self.assertIn("not create it", header)
+
     def test_regeneration_preserves_hand_written_work(self):
         spec = valid_spec()
         pkg = self.build(spec)
