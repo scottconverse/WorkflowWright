@@ -104,6 +104,8 @@ make validate    # check the plugin and marketplace manifests
 make example     # render the bundled example spec into examples/
 make site        # rebuild the landing page in docs/ from that example
 make install     # install into ~/.claude/skills/, replacing any older version
+make install-all # update every host copy on this machine at once
+make uninstall   # remove the copy make install created
 make package     # build the archive for a claude.ai account upload
 ```
 
