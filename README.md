@@ -2,8 +2,13 @@
 
 **[Website](https://scottconverse.github.io/WorkflowWright/)** ·
 [Manual](docs/manual.md) ·
+[Changelog](CHANGELOG.md) ·
 [Spec schema](skill/references/spec-schema.md) ·
 [Example spec](skill/assets/example-spec.json)
+
+> **Using v0.1.0 from the release archive?** Update to v0.2.0 — it fixes security
+> defects in how spec content was handled. See the [changelog](CHANGELOG.md). The
+> plugin and `git clone` installs already track these fixes.
 
 **Agent automation fails for structural reasons, not prompting reasons.**
 

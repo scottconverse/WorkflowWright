@@ -716,8 +716,11 @@ make test   <span class="t-dim"># 96 tests, no network</span></pre>
     <div class="prose">
       <p>New and openly developed, with a real test suite: 159 stdlib tests covering the
       validator, the renderer, the backend adapter, and the generated driver's retry and
-      session behaviour, running on Python 3.10–3.14 on Linux and on Windows. Released at
-      v0.1.0.</p>
+      session behaviour, running on Python 3.10–3.14 on Linux and on Windows. Current
+      release is <a href="__REPO__/releases/latest">v0.2.0</a>; if you installed the
+      archive before it, see the
+      <a href="__REPO__/blob/main/CHANGELOG.md">changelog</a> — v0.2.0 fixes security
+      defects in how spec content was handled.</p>
     </div>
     <ul class="limits" style="max-width:64ch">
       <li><b>The scaffold is a skeleton.</b> Every generated step exits 1 with a TODO until
